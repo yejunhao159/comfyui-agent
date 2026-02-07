@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ComfyUI Agent</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #1a1a2e; --surface: #16213e; --surface2: #0f3460;
+  --text: #e0e0e0; --text-dim: #8892a0; --accent: #00d2ff;
+  --green: #00e676; --red: #ff5252; --yellow: #ffd740;
+  --user-bg: #1a3a5c; --agent-bg: #1e2d3d; --tool-bg: #0d1b2a;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+#header { padding: 12px 20px; background: var(--surface); border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; gap: 12px; }
+#header h1 { font-size: 16px; color: var(--accent); }
+#status { font-size: 12px; color: var(--text-dim); }
+#status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+#status .dot.ok { background: var(--green); }
+#status .dot.err { background: var(--red); }
+#messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; line-height: 1.6; font-size: 14px; word-wrap: break-word; }
+.msg.user { align-self: flex-end; background: var(--user-bg); border: 1px solid #2a4a6c; }
+.msg.agent { align-self: flex-start; background: var(--agent-bg); border: 1px solid #2a3a4c; }
+.msg.agent .label { color: var(--green); font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.msg.user .label { color: var(--accent); font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.msg .content { white-space: pre-wrap; }
+.msg .content code { background: #0a0a1a; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+.msg .content pre { background: #0a0a1a; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; }
+.msg .content pre code { padding: 0; background: none; }
+.tool-event { align-self: flex-start; padding: 6px 14px; font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.tool-event .icon { font-size: 14px; }
+.tool-event.executing .icon { color: var(--yellow); }
+.tool-event.completed .icon { color: var(--green); }
+.tool-event.failed .icon { color: var(--red); }
+.tool-detail { align-self: flex-start; padding: 4px 14px 4px 32px; font-size: 11px; color: var(--text-dim); font-family: monospace; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+.turn-stats { align-self: center; font-size: 11px; color: var(--text-dim); padding: 4px 12px; background: var(--surface); border-radius: 10px; }
+.streaming-cursor::after { content: '▊'; animation: blink 0.8s infinite; color: var(--accent); }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+#input-area { padding: 12px 20px; background: var(--surface); border-top: 1px solid #2a2a4a; display: flex; gap: 10px; }
+#input { flex: 1; background: var(--bg); border: 1px solid #2a2a4a; border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; resize: none; min-height: 42px; max-height: 120px; font-family: inherit; }
+#input:focus { border-color: var(--accent); }
+#send-btn { background: var(--accent); color: #000; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+#send-btn:hover { opacity: 0.9; }
+#send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>ComfyUI Agent</h1>
+  <span id="status"><span class="dot err"></span>Connecting...</span>
+</div>
+<div id="messages"></div>
+<div id="input-area">
+  <textarea id="input" rows="1" placeholder="输入消息..."></textarea>
+  <button id="send-btn">发送</button>
+</div>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+const statusEl = document.getElementById('status');
+
+let ws = null;
+let sessionId = null;
+let currentAgentMsg = null;
+let streamingText = '';
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/api/chat/ws`);
+
+  ws.onopen = () => {
+    statusEl.innerHTML = '<span class="dot ok"></span>已连接';
+    ws.send(JSON.stringify({ type: 'ping' }));
+  };
+
+  ws.onclose = () => {
+    statusEl.innerHTML = '<span class="dot err"></span>已断开';
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {
+    statusEl.innerHTML = '<span class="dot err"></span>连接错误';
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      handleServerMessage(msg);
+    } catch (err) {
+      console.error('Parse error:', err);
+    }
+  };
+}
+
+function handleServerMessage(msg) {
+  switch (msg.type) {
+    case 'pong':
+      break;
+    case 'session_created':
+      sessionId = msg.session_id;
+      break;
+    case 'event':
+      handleEvent(msg);
+      break;
+    case 'response':
+      finishAgentMessage(msg.content);
+      sendBtn.disabled = false;
+      break;
+    case 'error':
+      appendError(msg.error);
+      sendBtn.disabled = false;
+      break;
+  }
+}
+
+function handleEvent(msg) {
+  const et = msg.event_type;
+  const data = msg.data || {};
+
+  if (et === 'stream.text_delta') {
+    streamingText += data.text || '';
+    updateStreamingMessage(streamingText);
+  } else if (et === 'state.tool_executing') {
+    appendToolEvent('executing', data.tool_name, '执行中...');
+  } else if (et === 'state.tool_completed') {
+    appendToolEvent('completed', data.tool_name, '完成');
+  } else if (et === 'state.tool_failed') {
+    appendToolEvent('failed', data.tool_name, '失败');
+  } else if (et === 'message.tool_result') {
+    if (data.result) appendToolDetail(data.result);
+  } else if (et === 'turn.end') {
+    const dur = (data.duration || 0).toFixed(1);
+    const steps = data.iterations || 0;
+    const usage = data.usage || {};
+    const tokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+    appendTurnStats(`${dur}s · ${steps} 步 · ${tokens} tokens`);
+  } else if (et === 'state.conversation_start') {
+    streamingText = '';
+    currentAgentMsg = null;
+  }
+}
+
+function appendUserMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = `<div class="label">You</div><div class="content">${escapeHtml(text)}</div>`;
+  messagesEl.appendChild(div);
+  scrollToBottom();
+}
+
+function updateStreamingMessage(text) {
+  if (!currentAgentMsg) {
+    currentAgentMsg = document.createElement('div');
+    currentAgentMsg.className = 'msg agent';
+    currentAgentMsg.innerHTML = `<div class="label">Agent</div><div class="content streaming-cursor"></div>`;
+    messagesEl.appendChild(currentAgentMsg);
+  }
+  const contentEl = currentAgentMsg.querySelector('.content');
+  contentEl.innerHTML = renderMarkdown(text);
+  contentEl.classList.add('streaming-cursor');
+  scrollToBottom();
+}
+
+function finishAgentMessage(text) {
+  if (currentAgentMsg) {
+    const contentEl = currentAgentMsg.querySelector('.content');
+    contentEl.innerHTML = renderMarkdown(text);
+    contentEl.classList.remove('streaming-cursor');
+  } else {
+    const div = document.createElement('div');
+    div.className = 'msg agent';
+    div.innerHTML = `<div class="label">Agent</div><div class="content">${renderMarkdown(text)}</div>`;
+    messagesEl.appendChild(div);
+  }
+  currentAgentMsg = null;
+  streamingText = '';
+  scrollToBottom();
+}
+
+function appendToolEvent(status, toolName, label) {
+  const icons = { executing: '⚡', completed: '✓', failed: '✗' };
+  const name = toolName.replace('comfyui_', '').replace(/_/g, ' ');
+  const div = document.createElement('div');
+  div.className = `tool-event ${status}`;
+  div.innerHTML = `<span class="icon">${icons[status]}</span> ${name} ${label}`;
+  messagesEl.appendChild(div);
+  scrollToBottom();
+}
+
+function appendToolDetail(text) {
+  const lines = text.trim().split('\n');
+  const show = lines.length > 5 ? lines.slice(0, 4).join('\n') + `\n... (${lines.length - 4} more)` : text;
+  const div = document.createElement('div');
+  div.className = 'tool-detail';
+  div.textContent = show;
+  messagesEl.appendChild(div);
+  scrollToBottom();
+}
+
+function appendTurnStats(text) {
+  const div = document.createElement('div');
+  div.className = 'turn-stats';
+  div.textContent = text;
+  messagesEl.appendChild(div);
+  scrollToBottom();
+}
+
+function appendError(text) {
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.innerHTML = `<div class="label" style="color:var(--red)">Error</div><div class="content">${escapeHtml(text)}</div>`;
+  messagesEl.appendChild(div);
+  scrollToBottom();
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderMarkdown(text) {
+  // Simple markdown: **bold**, `code`, ```code blocks```, newlines
+  let html = escapeHtml(text);
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text || sendBtn.disabled) return;
+
+  appendUserMessage(text);
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  ws.send(JSON.stringify({
+    type: 'chat',
+    session_id: sessionId,
+    message: text,
+  }));
+}
+
+// Auto-resize textarea
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+});
+
+// Enter to send, Shift+Enter for newline
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+sendBtn.addEventListener('click', sendMessage);
+
+// Check health on load
+fetch('/api/health').then(r => r.json()).then(data => {
+  if (data.comfyui?.connected) {
+    statusEl.innerHTML = '<span class="dot ok"></span>ComfyUI 已连接';
+  } else {
+    statusEl.innerHTML = '<span class="dot err"></span>ComfyUI 未连接';
+  }
+}).catch(() => {});
+
+connect();
+</script>
+</body>
+</html>

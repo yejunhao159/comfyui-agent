@@ -1,0 +1,24 @@
+comfyui:
+  base_url: "http://127.0.0.1:6006"
+  ws_url: "ws://127.0.0.1:6006/ws"
+  timeout: 30
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-5-20250929"
+  max_tokens: 8192
+  temperature: 0.7
+
+agent:
+  max_iterations: 20
+  session_db: "data/sessions.db"
+
+server:
+  host: "0.0.0.0"
+  port: 5200
+  cors_origins: ["*"]
+
+logging:
+  level: "INFO"
+  format: "console"
+  log_dir: "data/logs"
