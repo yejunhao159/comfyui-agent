@@ -30,6 +30,7 @@ from comfyui_agent.infrastructure.event_bus import EventBus
 from comfyui_agent.infrastructure.llm_client import LLMClient
 from comfyui_agent.infrastructure.logging_setup import setup_logging
 from comfyui_agent.infrastructure.session_store import SessionStore
+from comfyui_agent.knowledge.node_index import NodeIndex
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,8 @@ class WebServer:
             event_bus=self.event_bus,
         )
         self.session_store = SessionStore(db_path=config.agent.session_db)
-        tools = create_all_tools(self.comfyui)
+        self.node_index = NodeIndex()
+        tools = create_all_tools(self.comfyui, self.node_index)
         self.agent = AgentLoop(
             llm=self.llm,
             tools=tools,
@@ -97,6 +99,13 @@ class WebServer:
         if comfyui_ok:
             logger.info("ComfyUI connected at %s", self.config.comfyui.base_url)
             await self.comfyui.connect_ws()
+            # Build node index for on-demand discovery
+            await self.node_index.build(self.comfyui)
+            logger.info(
+                "Node index: %d nodes in %d categories",
+                self.node_index.node_count,
+                len(self.node_index.categories),
+            )
         else:
             logger.warning(
                 "ComfyUI not reachable at %s", self.config.comfyui.base_url
@@ -135,6 +144,11 @@ class WebServer:
             },
             "llm": {
                 "model": self.config.llm.model,
+            },
+            "node_index": {
+                "built": self.node_index.is_built,
+                "node_count": self.node_index.node_count,
+                "categories": len(self.node_index.categories),
             },
         })
 

@@ -22,34 +22,57 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a ComfyUI assistant. You help users create, manage, and debug ComfyUI workflows through natural language.
 
-You have access to tools that let you:
-- Check system status (GPU, VRAM, version)
-- List available models (checkpoints, loras, VAE, etc.)
-- Search and inspect node types and their parameters
-- Submit workflows for execution
-- Monitor the execution queue
-- View execution history and outputs
-- Interrupt running executions
+## Available Tools
 
-When the user asks you to generate an image, you should:
-1. First check what models are available
-2. Build a workflow in ComfyUI's API format
-3. Submit it for execution
-4. Report the results
+Discovery (use these to find the right nodes):
+- comfyui_search_nodes: Search nodes by keyword or browse categories
+- comfyui_get_node_detail: Get inputs/outputs for a specific node
+- comfyui_validate_workflow: Validate workflow before submitting
 
-ComfyUI workflow API format is a dict of node_id -> {class_type, inputs}.
-Example minimal txt2img workflow:
+Execution:
+- comfyui_queue_prompt: Submit a workflow for execution
+
+Monitoring:
+- comfyui_system_stats: GPU/VRAM status
+- comfyui_list_models: List checkpoints, loras, VAE, etc.
+- comfyui_get_queue: Queue status
+- comfyui_get_history: Execution history and output images
+- comfyui_interrupt: Stop current execution
+
+## Workflow Building Process
+
+1. Search for relevant nodes: comfyui_search_nodes(query="...")
+2. Get node details: comfyui_get_node_detail(node_class="...")
+3. Build workflow in API format
+4. Validate: comfyui_validate_workflow(workflow={...})
+5. Submit: comfyui_queue_prompt(workflow={...})
+6. Check results: comfyui_get_history(prompt_id="...")
+
+## ComfyUI Workflow API Format
+
+A workflow is a dict of node_id -> {class_type, inputs}.
+Node connections use [source_node_id, output_index] format.
+
+Example txt2img:
 {
   "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "model.safetensors"}},
   "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "a photo of a cat", "clip": ["1", 1]}},
   "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "bad quality", "clip": ["1", 1]}},
-  "4": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512, "batch_size": 1}},
+  "4": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
   "5": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": 42, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0}},
   "6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["1", 2]}},
   "7": {"class_type": "SaveImage", "inputs": {"images": ["6", 0], "filename_prefix": "output"}}
 }
 
-Always verify node types exist before using them. Use comfyui_get_node_info to check."""
+## Important Rules
+
+- Always search_nodes and get_node_detail before using a node type
+- Always validate_workflow before queue_prompt
+- Use the actual model names from list_models, not guessed names
+- Node connections: [node_id_string, output_index_int]"""
+
+
+MAX_TOOL_RESULT_CHARS = 15000
 
 
 class AgentLoop:
@@ -267,13 +290,22 @@ class AgentLoop:
         self._cancel_flags[session_id] = True
 
     async def _execute_tool(self, tool_name: str, params: dict[str, Any]) -> ToolResult:
-        """Execute a tool with error isolation and timeout."""
+        """Execute a tool with error isolation, timeout, and output truncation."""
         tool = self.tools.get(tool_name)
         if tool is None:
             return ToolResult.error(f"Unknown tool: {tool_name}")
 
         try:
             result = await asyncio.wait_for(tool.run(params), timeout=60.0)
+            # Truncate large outputs (OpenCode pattern: keep first/last halves)
+            if len(result.text) > MAX_TOOL_RESULT_CHARS:
+                half = MAX_TOOL_RESULT_CHARS // 2
+                mid_lines = result.text[half:-half].count("\n")
+                result.text = (
+                    f"{result.text[:half]}\n\n"
+                    f"... [{mid_lines} lines truncated] ...\n\n"
+                    f"{result.text[-half:]}"
+                )
             logger.info("Tool %s completed: %s", tool_name, "error" if result.is_error else "ok")
             return result
         except asyncio.TimeoutError:
