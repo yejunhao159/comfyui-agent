@@ -1,12 +1,12 @@
-/* ComfyUI Agent — Scoped styles (all prefixed with cua-) */
+/* ComfyUI Agent — Light Blue-Green Theme (cua- prefix) */
 
 .cua-root {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: #F0F5FF;
+  color: #334155;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   overflow: hidden;
@@ -18,8 +18,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #16213e;
-  border-bottom: 1px solid #2a2a4a;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2EAF5;
   flex-shrink: 0;
 }
 
@@ -30,14 +30,14 @@
 }
 
 .cua-header-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  color: #00d2ff;
+  color: #1E3A5F;
 }
 
 .cua-header-status {
   font-size: 11px;
-  color: #8892a0;
+  color: #94A3B8;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -51,27 +51,29 @@
 }
 
 .cua-header-clear {
-  background: none;
+  background: #EDF2FF;
   border: none;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  padding: 4px;
-  opacity: 0.5;
-  transition: opacity 0.2s;
+  padding: 4px 8px;
+  color: #64748B;
+  transition: background 0.2s;
 }
 
 .cua-header-clear:hover {
-  opacity: 1;
+  background: #DBEAFE;
 }
 
 /* --- Messages area --- */
 .cua-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
+  background: #F5FAF7;
 }
 
 .cua-messages::-webkit-scrollbar {
@@ -83,7 +85,7 @@
 }
 
 .cua-messages::-webkit-scrollbar-thumb {
-  background: #2a2a4a;
+  background: #C7D7F0;
   border-radius: 3px;
 }
 
@@ -94,10 +96,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #8892a0;
+  color: #64748B;
   gap: 8px;
   padding: 20px;
   text-align: center;
+  background: #F5FAF7;
 }
 
 .cua-empty-icon {
@@ -107,47 +110,79 @@
 
 .cua-empty-hint {
   font-size: 12px;
-  color: #5a6270;
+  color: #94A3B8;
   max-width: 220px;
+}
+
+/* --- Message rows (left-right layout) --- */
+.cua-msg-row {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.cua-msg-row-user {
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+.cua-msg-row-agent {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.cua-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cua-avatar-user {
+  background: #E8F0FE;
+  color: #5B8DEF;
+}
+
+.cua-avatar-agent {
+  background: #34D399;
+  color: #FFFFFF;
 }
 
 /* --- Message bubbles --- */
 .cua-msg {
-  max-width: 92%;
-  padding: 8px 12px;
-  border-radius: 10px;
+  max-width: 85%;
   line-height: 1.6;
   word-wrap: break-word;
 }
 
 .cua-msg-user {
-  align-self: flex-end;
-  background: #1a3a5c;
-  border: 1px solid #2a4a6c;
+  background: #5B8DEF;
+  color: #FFFFFF;
+  padding: 10px 14px;
+  border-radius: 18px 18px 4px 18px;
 }
 
 .cua-msg-agent {
-  align-self: flex-start;
-  background: #1e2d3d;
-  border: 1px solid #2a3a4c;
+  padding: 0;
+  background: none;
 }
 
 .cua-msg-label {
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 3px;
-}
-
-.cua-msg-user .cua-msg-label {
-  color: #00d2ff;
-}
-
-.cua-msg-agent .cua-msg-label {
-  color: #00e676;
+  display: none;
 }
 
 .cua-msg-content {
-  font-size: 13px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.cua-msg-user .cua-msg-content {
+  color: #FFFFFF;
 }
 
 .cua-msg-content p {
@@ -158,18 +193,29 @@
   margin-bottom: 0;
 }
 
+.cua-msg-content strong {
+  color: #1E293B;
+  font-weight: 700;
+}
+
+.cua-msg-user .cua-msg-content strong {
+  color: #FFFFFF;
+}
+
 .cua-msg-content code {
-  background: #0a0a1a;
+  background: #EDF2FF;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 4px;
   font-size: 12px;
   font-family: "SF Mono", "Fira Code", monospace;
+  color: #5B8DEF;
 }
 
 .cua-msg-content pre {
-  background: #0a0a1a;
+  background: #F0F5FF;
+  border: 1px solid #E2EAF5;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow-x: auto;
   margin: 6px 0;
 }
@@ -177,10 +223,11 @@
 .cua-msg-content pre code {
   padding: 0;
   background: none;
+  color: #334155;
 }
 
 .cua-msg-content a {
-  color: #00d2ff;
+  color: #5B8DEF;
   text-decoration: none;
 }
 
@@ -194,6 +241,11 @@
   margin: 4px 0;
 }
 
+.cua-msg-content ol li::marker {
+  color: #5B8DEF;
+  font-weight: 600;
+}
+
 .cua-msg-content table {
   border-collapse: collapse;
   margin: 6px 0;
@@ -202,19 +254,20 @@
 
 .cua-msg-content th,
 .cua-msg-content td {
-  border: 1px solid #2a3a4c;
+  border: 1px solid #E2EAF5;
   padding: 4px 8px;
 }
 
 .cua-msg-content th {
-  background: #16213e;
+  background: #EDF2FF;
+  color: #1E3A5F;
 }
 
 /* Streaming cursor */
 .cua-streaming::after {
   content: "▊";
   animation: cua-blink 0.8s infinite;
-  color: #00d2ff;
+  color: #34D399;
 }
 
 @keyframes cua-blink {
@@ -223,7 +276,7 @@
 }
 
 .cua-thinking {
-  color: #8892a0;
+  color: #94A3B8;
   font-style: italic;
 }
 
@@ -232,47 +285,69 @@
   margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .cua-toolcall {
-  background: #151525;
-  border-radius: 6px;
+  background: #FFFFFF;
+  border: 1px solid #D1E7DD;
+  border-radius: 10px;
   overflow: hidden;
+  animation: cua-slide-in 0.2s ease-out;
+}
+
+@keyframes cua-slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cua-toolcall-executing {
+  background: #FFFBEB;
+  border-color: #FDE68A;
+}
+
+.cua-toolcall-failed {
+  background: #FEF2F2;
+  border-color: #FECACA;
 }
 
 .cua-toolcall-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 8px;
+  padding: 8px 12px;
   cursor: pointer;
   font-size: 12px;
-  color: #8892a0;
+  color: #475569;
   user-select: none;
   transition: background 0.15s;
 }
 
 .cua-toolcall-header:hover {
-  background: #1a1a30;
+  background: #F8FAFC;
+}
+
+.cua-toolcall-executing .cua-toolcall-header:hover {
+  background: #FEF9C3;
 }
 
 .cua-toolcall-icon {
   font-size: 13px;
   flex-shrink: 0;
+  transition: color 0.3s;
 }
 
 .cua-toolcall-executing .cua-toolcall-icon {
-  color: #ffd740;
+  color: #D97706;
   animation: cua-pulse 1.5s ease-in-out infinite;
 }
 
 .cua-toolcall-completed .cua-toolcall-icon {
-  color: #00e676;
+  color: #10B981;
 }
 
 .cua-toolcall-failed .cua-toolcall-icon {
-  color: #ff5252;
+  color: #EF4444;
 }
 
 .cua-toolcall-name {
@@ -285,33 +360,61 @@
 }
 
 .cua-toolcall-badge {
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
   flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  transition: color 0.3s;
 }
 
 .cua-toolcall-executing .cua-toolcall-badge {
-  color: #ffd740;
+  color: #D97706;
+  background: #FEF3C7;
 }
 
 .cua-toolcall-completed .cua-toolcall-badge {
-  color: #00e676;
+  color: #10B981;
+  background: #ECFDF5;
 }
 
 .cua-toolcall-failed .cua-toolcall-badge {
-  color: #ff5252;
+  color: #EF4444;
+  background: #FEF2F2;
+}
+
+.cua-toolcall-chevron {
+  font-size: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  color: #94A3B8;
+}
+
+.cua-chevron-open {
+  transform: rotate(90deg);
 }
 
 .cua-toolcall-body {
-  padding: 0 10px 8px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.25s ease;
+  padding: 0 12px;
+}
+
+.cua-body-open {
+  max-height: 300px;
+  padding: 0 12px 8px;
+  overflow-y: auto;
 }
 
 .cua-toolcall-result {
-  background: #0a0a1a;
-  padding: 8px;
-  border-radius: 4px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  padding: 8px 10px;
+  border-radius: 6px;
   font-size: 11px;
   font-family: "SF Mono", "Fira Code", monospace;
-  color: #a0a8b4;
+  color: #64748B;
   margin: 0;
   max-height: 200px;
   overflow-y: auto;
@@ -320,7 +423,9 @@
 }
 
 .cua-toolcall-error {
-  color: #ff5252;
+  color: #EF4444;
+  background: #FEF2F2;
+  border-color: #FECACA;
 }
 
 @keyframes cua-pulse {
@@ -332,10 +437,10 @@
 .cua-stats {
   align-self: center;
   font-size: 11px;
-  color: #8892a0;
-  padding: 3px 10px;
-  background: #16213e;
-  border-radius: 8px;
+  color: #94A3B8;
+  padding: 4px 12px;
+  background: #EDF2FF;
+  border-radius: 10px;
   margin: 2px 0;
 }
 
@@ -343,39 +448,40 @@
 .cua-input-area {
   display: flex;
   gap: 8px;
-  padding: 10px 12px;
-  background: #16213e;
-  border-top: 1px solid #2a2a4a;
+  padding: 12px 16px 16px;
+  background: #FFFFFF;
+  border-top: 1px solid #E2EAF5;
   flex-shrink: 0;
 }
 
 .cua-input {
   flex: 1;
-  background: #1a1a2e;
-  border: 1px solid #2a2a4a;
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: #e0e0e0;
-  font-size: 13px;
+  background: #F0F5FF;
+  border: 1px solid #C7D7F0;
+  border-radius: 20px;
+  padding: 8px 16px;
+  color: #334155;
+  font-size: 14px;
   font-family: inherit;
   outline: none;
   resize: none;
   min-height: 36px;
   max-height: 120px;
   line-height: 1.4;
+  transition: border-color 0.2s;
 }
 
 .cua-input:focus {
-  border-color: #00d2ff;
+  border-color: #5B8DEF;
 }
 
 .cua-input::placeholder {
-  color: #5a6270;
+  color: #94A3B8;
 }
 
 .cua-btn {
   border: none;
-  border-radius: 8px;
+  border-radius: 20px;
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 600;
@@ -394,11 +500,11 @@
 }
 
 .cua-btn-send {
-  background: #00d2ff;
-  color: #000;
+  background: #5B8DEF;
+  color: #FFFFFF;
 }
 
 .cua-btn-cancel {
-  background: #ff5252;
-  color: #fff;
+  background: #EF4444;
+  color: #FFFFFF;
 }

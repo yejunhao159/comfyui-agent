@@ -11,9 +11,9 @@ export const Header: React.FC<Props> = ({ status, onClear }) => {
     ConnectionStatus,
     { color: string; label: string }
   > = {
-    connecting: { color: "#ffd740", label: "连接中..." },
-    connected: { color: "#00e676", label: "已连接" },
-    disconnected: { color: "#ff5252", label: "已断开" },
+    connecting: { color: "#FBBF24", label: "连接中..." },
+    connected: { color: "#34D399", label: "已连接" },
+    disconnected: { color: "#EF4444", label: "已断开" },
   };
 
   const { color, label } = statusConfig[status];
