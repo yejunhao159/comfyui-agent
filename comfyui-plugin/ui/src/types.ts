@@ -8,11 +8,17 @@ export interface ToolCall {
   error?: string;
 }
 
+/** Ordered content block — text or tool call, rendered chronologically. */
+export type ContentBlock =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; tool: ToolCall };
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
   content: string;
   toolCalls: ToolCall[];
+  blocks: ContentBlock[];
   timestamp: number;
 }
 

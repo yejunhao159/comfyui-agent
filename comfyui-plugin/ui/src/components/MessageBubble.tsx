@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import type { AgentMessage, ToolCall } from "../types";
+import type { AgentMessage, ContentBlock, ToolCall } from "../types";
 
 interface Props {
   message: AgentMessage;
@@ -89,25 +89,46 @@ const AgentMarkdown = React.memo<{ content: string }>(({ content }) => (
   </ReactMarkdown>
 ));
 
+/** Render a single content block. */
+const BlockRenderer: React.FC<{
+  block: ContentBlock;
+  isLast: boolean;
+  isStreaming: boolean;
+}> = ({ block, isLast, isStreaming }) => {
+  if (block.kind === "text") {
+    const streaming = isLast && isStreaming;
+    return (
+      <div className={`cua-msg-content ${streaming ? "cua-streaming" : ""}`}>
+        <AgentMarkdown content={block.text} />
+      </div>
+    );
+  }
+  // tool block
+  return (
+    <div className="cua-toolcalls">
+      <ToolCallItem tool={block.tool} />
+    </div>
+  );
+};
+
 export const MessageBubble: React.FC<Props> = ({ message, isStreaming }) => {
   const isUser = message.role === "user";
 
-  const [rendered, setRendered] = useState(message.content);
+  // Throttle streaming updates via rAF
+  const [renderedBlocks, setRenderedBlocks] = useState(message.blocks);
   const rafRef = useRef(0);
 
   useEffect(() => {
     if (!isStreaming) {
-      setRendered(message.content);
+      setRenderedBlocks(message.blocks);
       return;
     }
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
-      setRendered(message.content);
+      setRenderedBlocks(message.blocks);
     });
     return () => cancelAnimationFrame(rafRef.current);
-  }, [message.content, isStreaming]);
-
-  const toolCalls = message.toolCalls;
+  }, [message.blocks, isStreaming]);
 
   return (
     <div className={`cua-msg-row ${isUser ? "cua-msg-row-user" : "cua-msg-row-agent"}`}>
@@ -115,20 +136,22 @@ export const MessageBubble: React.FC<Props> = ({ message, isStreaming }) => {
         <div className="cua-avatar cua-avatar-agent">A</div>
       )}
       <div className={`cua-msg ${isUser ? "cua-msg-user" : "cua-msg-agent"}`}>
-        <div className={`cua-msg-content ${isStreaming ? "cua-streaming" : ""}`}>
-          {isUser ? (
+        {isUser ? (
+          <div className="cua-msg-content">
             <p>{message.content}</p>
-          ) : rendered ? (
-            <AgentMarkdown content={rendered} />
-          ) : toolCalls.length === 0 ? (
+          </div>
+        ) : renderedBlocks.length > 0 ? (
+          renderedBlocks.map((block, i) => (
+            <BlockRenderer
+              key={i}
+              block={block}
+              isLast={i === renderedBlocks.length - 1}
+              isStreaming={isStreaming}
+            />
+          ))
+        ) : (
+          <div className="cua-msg-content">
             <span className="cua-thinking">Thinking...</span>
-          ) : null}
-        </div>
-        {!isUser && toolCalls.length > 0 && (
-          <div className="cua-toolcalls">
-            {toolCalls.map((tc) => (
-              <ToolCallItem key={tc.id} tool={tc} />
-            ))}
           </div>
         )}
       </div>

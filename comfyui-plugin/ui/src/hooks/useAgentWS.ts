@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ChatItem,
   ConnectionStatus,
+  ContentBlock,
   ServerEvent,
   ToolCall,
   TurnStats,
@@ -27,37 +28,15 @@ export function useAgentWS(agentUrl: string) {
     setItems((prev) => [...prev, item]);
   }, []);
 
-  const updateLastAgentMessage = useCallback((content: string) => {
-    setItems((prev) => {
-      const copy = [...prev];
-      for (let i = copy.length - 1; i >= 0; i--) {
-        const it = copy[i];
-        if (it?.kind === "message" && it.data.role === "agent") {
-          copy[i] = {
-            ...it,
-            data: { ...it.data, content },
-          };
-          break;
-        }
-      }
-      return copy;
-    });
-  }, []);
-
-  const updateLastAgentTools = useCallback(
-    (updater: (tools: ToolCall[]) => ToolCall[]) => {
+  /** Update the last agent message's blocks array. */
+  const updateLastAgent = useCallback(
+    (updater: (msg: ChatItem & { kind: "message" }) => ChatItem) => {
       setItems((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
-          const it = copy[i];
-          if (it?.kind === "message" && it.data.role === "agent") {
-            copy[i] = {
-              ...it,
-              data: {
-                ...it.data,
-                toolCalls: updater(it.data.toolCalls),
-              },
-            };
+          const it = copy[i]!;
+          if (it.kind === "message" && it.data.role === "agent") {
+            copy[i] = updater(it as ChatItem & { kind: "message" });
             break;
           }
         }
@@ -65,6 +44,76 @@ export function useAgentWS(agentUrl: string) {
       });
     },
     []
+  );
+
+  /** Append or update the last text block in the agent message's blocks. */
+  const updateStreamingText = useCallback(
+    (text: string) => {
+      updateLastAgent((it) => {
+        const blocks = [...it.data.blocks];
+        const last = blocks[blocks.length - 1];
+        if (last && last.kind === "text") {
+          blocks[blocks.length - 1] = { kind: "text", text };
+        } else {
+          blocks.push({ kind: "text", text });
+        }
+        return {
+          ...it,
+          data: { ...it.data, content: text, blocks },
+        };
+      });
+    },
+    [updateLastAgent]
+  );
+
+  /** Push a new tool block into the agent message's blocks. */
+  const pushToolBlock = useCallback(
+    (tool: ToolCall) => {
+      updateLastAgent((it) => {
+        const toolCalls = [...it.data.toolCalls, tool];
+        const blocks: ContentBlock[] = [
+          ...it.data.blocks,
+          { kind: "tool", tool },
+        ];
+        return {
+          ...it,
+          data: { ...it.data, toolCalls, blocks },
+        };
+      });
+    },
+    [updateLastAgent]
+  );
+
+  /** Update a tool by name in both toolCalls and blocks. */
+  const updateTool = useCallback(
+    (toolName: string, patch: Partial<ToolCall>) => {
+      updateLastAgent((it) => {
+        // Update toolCalls
+        const toolCalls = [...it.data.toolCalls];
+        for (let i = toolCalls.length - 1; i >= 0; i--) {
+          const tc = toolCalls[i]!;
+          if (tc.name === toolName && (patch.status ? tc.status === "executing" : true)) {
+            toolCalls[i] = { ...tc, ...patch };
+            break;
+          }
+        }
+        // Update blocks
+        const blocks = [...it.data.blocks];
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i]!;
+          if (b.kind === "tool" && b.tool.name === toolName &&
+              (patch.status ? b.tool.status === "executing" : true)) {
+            blocks[i] = { kind: "tool", tool: { ...b.tool, ...patch } };
+            break;
+          }
+        }
+        return {
+          ...it,
+          data: { ...it.data, toolCalls, blocks },
+        };
+      });
+    },
+    [updateLastAgent]
   );
 
   // --- WebSocket connection ---
@@ -117,7 +166,8 @@ export function useAgentWS(agentUrl: string) {
 
         case "response":
           if (msg.content) {
-            updateLastAgentMessage(msg.content);
+            // Final content — update the last text block
+            updateStreamingText(msg.content);
           }
           streamTextRef.current = "";
           setIsProcessing(false);
@@ -131,6 +181,7 @@ export function useAgentWS(agentUrl: string) {
               role: "agent",
               content: `**Error:** ${msg.error ?? "Unknown error"}`,
               toolCalls: [],
+              blocks: [{ kind: "text", text: `**Error:** ${msg.error ?? "Unknown error"}` }],
               timestamp: Date.now(),
             },
           });
@@ -139,7 +190,7 @@ export function useAgentWS(agentUrl: string) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appendItem, updateLastAgentMessage]
+    [appendItem, updateStreamingText]
   );
 
   const handleEvent = useCallback(
@@ -149,10 +200,9 @@ export function useAgentWS(agentUrl: string) {
 
       if (et === "stream.text_delta") {
         streamTextRef.current += (data.text as string) ?? "";
-        updateLastAgentMessage(streamTextRef.current);
+        updateStreamingText(streamTextRef.current);
       } else if (et === "state.thinking") {
-        // Reset streaming text at the start of each LLM iteration
-        // so text from iteration N doesn't concatenate with iteration N+1
+        // New LLM iteration — reset stream so next text becomes a new block
         streamTextRef.current = "";
       } else if (et === "state.conversation_start") {
         streamTextRef.current = "";
@@ -163,54 +213,25 @@ export function useAgentWS(agentUrl: string) {
             role: "agent",
             content: "",
             toolCalls: [],
+            blocks: [],
             timestamp: Date.now(),
           },
         });
       } else if (et === "state.tool_executing") {
         const toolName = (data.tool_name as string) ?? "unknown";
         const toolId = (data.tool_id as string) ?? nextId();
-        updateLastAgentTools((tools) => [
-          ...tools,
-          { id: toolId, name: toolName, status: "executing" },
-        ]);
+        pushToolBlock({ id: toolId, name: toolName, status: "executing" });
       } else if (et === "state.tool_completed") {
         const toolName = (data.tool_name as string) ?? "";
-        updateLastAgentTools((tools) => {
-          const copy = [...tools];
-          for (let i = copy.length - 1; i >= 0; i--) {
-            if (copy[i]!.name === toolName && copy[i]!.status === "executing") {
-              copy[i] = { ...copy[i]!, status: "completed" };
-              break;
-            }
-          }
-          return copy;
-        });
+        updateTool(toolName, { status: "completed" });
       } else if (et === "state.tool_failed") {
         const toolName = (data.tool_name as string) ?? "";
         const error = (data.error as string) ?? "Unknown error";
-        updateLastAgentTools((tools) => {
-          const copy = [...tools];
-          for (let i = copy.length - 1; i >= 0; i--) {
-            if (copy[i]!.name === toolName && copy[i]!.status === "executing") {
-              copy[i] = { ...copy[i]!, status: "failed", error };
-              break;
-            }
-          }
-          return copy;
-        });
+        updateTool(toolName, { status: "failed", error });
       } else if (et === "message.tool_result") {
         const toolName = (data.tool_name as string) ?? "";
         const result = (data.result as string) ?? "";
-        updateLastAgentTools((tools) => {
-          const copy = [...tools];
-          for (let i = copy.length - 1; i >= 0; i--) {
-            if (copy[i]!.name === toolName) {
-              copy[i] = { ...copy[i]!, result };
-              break;
-            }
-          }
-          return copy;
-        });
+        updateTool(toolName, { result });
       } else if (et === "turn.end") {
         const usage = (data.usage as Record<string, number>) ?? {};
         const stats: TurnStats = {
@@ -231,7 +252,7 @@ export function useAgentWS(agentUrl: string) {
         );
       }
     },
-    [appendItem, updateLastAgentMessage, updateLastAgentTools]
+    [appendItem, updateStreamingText, pushToolBlock, updateTool]
   );
 
   // --- send message ---
@@ -246,6 +267,7 @@ export function useAgentWS(agentUrl: string) {
           role: "user",
           content: text,
           toolCalls: [],
+          blocks: [],
           timestamp: Date.now(),
         },
       });
