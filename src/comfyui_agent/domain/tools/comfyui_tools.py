@@ -774,12 +774,87 @@ def _find_comfyui_python(custom_nodes_dir: Path) -> str:
 
 
 # ============================================================
+# Dispatcher — single tool that routes to all ComfyUI operations
+# ============================================================
+
+# Action names (strip "comfyui_" prefix from internal tool names)
+_ACTION_NAMES = [
+    "search_nodes",
+    "get_node_detail",
+    "validate_workflow",
+    "queue_prompt",
+    "system_stats",
+    "list_models",
+    "get_queue",
+    "get_history",
+    "interrupt",
+    "upload_image",
+    "download_model",
+    "install_custom_node",
+    "free_memory",
+    "get_folder_paths",
+]
+
+
+class ComfyUIDispatcher(Tool):
+    """Single dispatcher tool that routes to all ComfyUI operations.
+
+    Instead of exposing 14 separate tools (~1366 tokens of schema per request),
+    this exposes one tool with an action+params pattern (~200 tokens).
+    The LLM learns available actions from the system prompt.
+    """
+
+    def __init__(self, client: ComfyUIClient, node_index: NodeIndex) -> None:
+        self._tools: dict[str, Tool] = {}
+        for t in _create_internal_tools(client, node_index):
+            # Strip "comfyui_" prefix: "comfyui_search_nodes" -> "search_nodes"
+            name = t.info().name.replace("comfyui_", "")
+            self._tools[name] = t
+
+    def info(self) -> ToolInfo:
+        return ToolInfo(
+            name="comfyui",
+            description=(
+                "Execute ComfyUI operations. "
+                "See system prompt for available actions and their parameters."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": _ACTION_NAMES,
+                        "description": "The operation to perform",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Action-specific parameters (see system prompt for each action)",
+                    },
+                },
+                "required": ["action"],
+            },
+        )
+
+    async def run(self, params: dict[str, Any]) -> ToolResult:
+        action = params.get("action", "")
+        action_params = params.get("params", {})
+
+        tool = self._tools.get(action)
+        if not tool:
+            return ToolResult.error(
+                f"Unknown action: '{action}'. Available: {list(self._tools.keys())}"
+            )
+
+        return await tool.run(action_params)
+
+
+# ============================================================
 # Factory
 # ============================================================
 
 
-def create_all_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]:
-    """Create all ComfyUI tools."""
+def _create_internal_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]:
+    """Create all internal ComfyUI tools (used by the dispatcher)."""
     return [
         # Discovery
         SearchNodesTool(node_index),
@@ -800,3 +875,12 @@ def create_all_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]
         FreeMemoryTool(client),
         GetFolderPathsTool(client),
     ]
+
+
+def create_all_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]:
+    """Create all ComfyUI tools as a single dispatcher.
+
+    Returns a list with one ComfyUIDispatcher that routes to all 14 operations.
+    This reduces per-request token overhead from ~1366 to ~200 tokens.
+    """
+    return [ComfyUIDispatcher(client, node_index)]

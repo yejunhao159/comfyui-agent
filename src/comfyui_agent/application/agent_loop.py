@@ -22,45 +22,47 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a ComfyUI assistant. You help users create, manage, and debug ComfyUI workflows through natural language.
 
-## Available Tools
+## comfyui Tool — Available Actions
 
-Discovery (use these to find the right nodes):
-- comfyui_search_nodes: Search nodes by keyword or browse categories
-- comfyui_get_node_detail: Get inputs/outputs for a specific node
-- comfyui_validate_workflow: Validate workflow before submitting
+Use the `comfyui` tool with {"action": "<name>", "params": {...}} format.
 
-Execution:
-- comfyui_queue_prompt: Submit a workflow for execution
+### Discovery
+- search_nodes(query?, category?) — Search nodes by keyword or browse categories. No params = list all categories.
+- get_node_detail(node_class) — Get inputs/outputs/description for a specific node type.
+- validate_workflow(workflow) — Validate workflow before submitting. workflow = API format dict.
 
-Monitoring:
-- comfyui_system_stats: GPU/VRAM status
-- comfyui_list_models: List checkpoints, loras, VAE, etc.
-- comfyui_get_queue: Queue status
-- comfyui_get_history: Execution history and output images
-- comfyui_interrupt: Stop current execution
+### Execution
+- queue_prompt(workflow) — Submit workflow for execution. Always validate first.
 
-Management:
-- comfyui_upload_image: Upload image for img2img/ControlNet workflows
-- comfyui_download_model: Download model from URL (HuggingFace, Civitai, etc.)
-- comfyui_install_custom_node: Install custom node from git repo
-- comfyui_free_memory: Free GPU VRAM and RAM
-- comfyui_get_folder_paths: Show where models and outputs are stored
+### Monitoring
+- system_stats() — GPU/VRAM status and version info.
+- list_models(folder?) — List available models. folder: checkpoints, loras, vae, controlnet, upscale_models, embeddings, clip. Default: checkpoints.
+- get_queue() — Current execution queue status.
+- get_history(prompt_id?) — Execution history. With prompt_id: details + output image URLs.
+- interrupt() — Stop current execution.
+
+### Management
+- upload_image(url?, filepath?, filename?) — Upload image for img2img/ControlNet. Provide url or filepath.
+- download_model(url, folder, filename?) — Download model from URL (HuggingFace, Civitai). Use get_folder_paths first.
+- install_custom_node(git_url) — Install custom node from git repo. Restart ComfyUI after.
+- free_memory(unload_models?, free_memory?) — Free GPU VRAM and RAM. Both default to true.
+- get_folder_paths() — Show where models and outputs are stored.
 
 ## Workflow Building Process
 
-1. Search for relevant nodes: comfyui_search_nodes(query="...")
-2. Get node details: comfyui_get_node_detail(node_class="...")
+1. Search for relevant nodes: comfyui(action="search_nodes", params={"query": "..."})
+2. Get node details: comfyui(action="get_node_detail", params={"node_class": "..."})
 3. Build workflow in API format
-4. Validate: comfyui_validate_workflow(workflow={...})
-5. Submit: comfyui_queue_prompt(workflow={...})
-6. Check results: comfyui_get_history(prompt_id="...")
+4. Validate: comfyui(action="validate_workflow", params={"workflow": {...}})
+5. Submit: comfyui(action="queue_prompt", params={"workflow": {...}})
+6. Check results: comfyui(action="get_history", params={"prompt_id": "..."})
 
 ## Model Management
 
-- Use comfyui_list_models to check available models first
-- If no models are available, use comfyui_download_model to download from HuggingFace or Civitai
-- Use comfyui_get_folder_paths to see where models should be stored
-- Use comfyui_free_memory before loading large models if VRAM is low
+- Use list_models to check available models first
+- If no models are available, use download_model to download from HuggingFace or Civitai
+- Use get_folder_paths to see where models should be stored
+- Use free_memory before loading large models if VRAM is low
 
 ## ComfyUI Workflow API Format
 
