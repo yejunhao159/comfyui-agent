@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+import aiohttp_cors
 
 from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.domain.models.events import Event, EventType
@@ -79,12 +80,29 @@ class WebServer:
         app.on_shutdown.append(self._on_shutdown)
 
         # API routes
-        app.router.add_get("/api/health", self.handle_health)
-        app.router.add_get("/api/sessions", self.handle_list_sessions)
-        app.router.add_post("/api/sessions", self.handle_create_session)
-        app.router.add_delete("/api/sessions/{session_id}", self.handle_delete_session)
-        app.router.add_post("/api/chat", self.handle_chat)
-        app.router.add_get("/api/chat/ws", self.handle_chat_ws)
+        health = app.router.add_get("/api/health", self.handle_health)
+        sessions_list = app.router.add_get("/api/sessions", self.handle_list_sessions)
+        sessions_create = app.router.add_post("/api/sessions", self.handle_create_session)
+        sessions_delete = app.router.add_delete(
+            "/api/sessions/{session_id}", self.handle_delete_session
+        )
+        chat = app.router.add_post("/api/chat", self.handle_chat)
+        chat_ws = app.router.add_get("/api/chat/ws", self.handle_chat_ws)
+
+        # CORS — allow ComfyUI frontend (and other origins) to access the API
+        cors = aiohttp_cors.setup(
+            app,
+            defaults={
+                origin: aiohttp_cors.ResourceOptions(
+                    allow_credentials=True,
+                    allow_headers="*",
+                    allow_methods="*",
+                )
+                for origin in self.config.server.cors_origins
+            },
+        )
+        for route in [health, sessions_list, sessions_create, sessions_delete, chat, chat_ws]:
+            cors.add(route)
 
         # Static files (web UI)
         if STATIC_DIR.exists():
