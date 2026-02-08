@@ -53,6 +53,7 @@ class AgentLoop:
         max_iterations: int = 20,
         system_prompt: str | None = None,
         context_manager: ContextManager | None = None,
+        summarizer: Any | None = None,
     ) -> None:
         self.llm = llm
         self.tool_executor = ToolExecutor(tools)
@@ -62,6 +63,7 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.system_prompt = system_prompt or get_default_prompt()
         self.context_manager = context_manager
+        self.summarizer = summarizer
         self._cancel_flags: dict[str, bool] = {}
 
     async def run(self, session_id: str, user_input: str) -> str:
@@ -77,8 +79,14 @@ class AgentLoop:
         await self._emit_state(EventType.STATE_CONVERSATION_START, session_id)
         self.state_machine.process(Event(type=EventType.STATE_CONVERSATION_START))
 
-        messages = await self.session_store.load_messages(session_id)
+        # Load from summary checkpoint if available
+        meta = await self.session_store.get_session_meta(session_id)
+        from_id = meta.get("summary_message_id") or 0
+        messages = await self.session_store.load_messages_from(session_id, from_id=from_id)
+
+        # Persist user message immediately
         messages.append({"role": "user", "content": user_input})
+        await self.session_store.append_message(session_id, "user", user_input)
 
         await self._emit(EventType.MESSAGE_USER, session_id, {"content": user_input})
         await self._emit(EventType.TURN_START, session_id)
@@ -88,7 +96,6 @@ class AgentLoop:
         self._cancel_flags[session_id] = False
         iteration = -1
         recent_tools: list[str] = []  # Track recent tool names for loop detection
-        workflow_submitted = False  # Track if queue_prompt succeeded
 
         try:
             for iteration in range(self.max_iterations):
@@ -104,7 +111,13 @@ class AgentLoop:
                 # Emit thinking event so frontend can reset streaming text
                 await self._emit_state(EventType.STATE_THINKING, session_id)
 
-                # Compact context if needed
+                # Summarize if needed (semantic compression)
+                if self.summarizer:
+                    messages = await self.summarizer.maybe_summarize(
+                        session_id, messages
+                    )
+
+                # Compact context if needed (safety fallback)
                 if self.context_manager:
                     messages = self.context_manager.prepare_messages(messages)
 
@@ -114,24 +127,11 @@ class AgentLoop:
                 if loop_warning:
                     system += "\n\n" + loop_warning
 
-                # After workflow submitted, force LLM to give final answer
-                if workflow_submitted:
-                    system += (
-                        "\n\n⚠️ WORKFLOW ALREADY SUBMITTED. You MUST now give a "
-                        "final text response to the user. Do NOT call any more tools."
-                    )
-                    # Remove tools to force text-only response
-                    response = await self.llm.chat(
-                        messages=messages,
-                        tools=None,
-                        system=system,
-                    )
-                else:
-                    response = await self.llm.chat(
-                        messages=messages,
-                        tools=self.tool_executor.schemas or None,
-                        system=system,
-                    )
+                response = await self.llm.chat(
+                    messages=messages,
+                    tools=self.tool_executor.schemas or None,
+                    system=system,
+                )
 
                 # Accumulate usage
                 for k in total_usage:
@@ -143,7 +143,11 @@ class AgentLoop:
                     for tc in response.tool_calls:
                         recent_tools.append(self._tool_display_name(tc))
 
-                    messages.append(build_assistant_message(response))
+                    assistant_msg = build_assistant_message(response)
+                    messages.append(assistant_msg)
+                    await self.session_store.append_message(
+                        session_id, "assistant", assistant_msg["content"]
+                    )
                     await self._emit(
                         EventType.MESSAGE_ASSISTANT, session_id,
                         {"content": response.text, "tool_calls": len(response.tool_calls)},
@@ -152,24 +156,32 @@ class AgentLoop:
                     tool_results = await self._execute_tools(
                         response.tool_calls, session_id
                     )
-                    messages.append(build_tool_results_message(tool_results))
-
-                    # Check if queue_prompt was called successfully
-                    if "queue_prompt" in recent_tools[-len(response.tool_calls):]:
-                        workflow_submitted = True
-                        logger.info("Workflow submitted, next iteration will force final answer")
+                    tool_results_msg = build_tool_results_message(tool_results)
+                    messages.append(tool_results_msg)
+                    await self.session_store.append_message(
+                        session_id, "user", tool_results_msg["content"]
+                    )
 
                     continue
 
-                # Final answer
+                # Final answer — persist immediately
                 self.state_machine.process(Event(type=EventType.STATE_RESPONDING))
                 messages.append({"role": "assistant", "content": response.text})
+                await self.session_store.append_message(
+                    session_id, "assistant", response.text
+                )
 
                 await self._emit(
                     EventType.MESSAGE_ASSISTANT, session_id,
                     {"content": response.text, "tool_calls": 0},
                 )
-                await self.session_store.save_messages(session_id, messages)
+
+                # Update token totals
+                await self.session_store.update_session_meta(
+                    session_id,
+                    total_input_tokens=total_usage["input_tokens"],
+                    total_output_tokens=total_usage["output_tokens"],
+                )
 
                 await self._finish_turn(
                     session_id, turn_start, iteration + 1, total_usage
@@ -190,7 +202,9 @@ class AgentLoop:
                 )
 
             messages.append({"role": "assistant", "content": final_text})
-            await self.session_store.save_messages(session_id, messages)
+            await self.session_store.append_message(
+                session_id, "assistant", final_text
+            )
 
             await self._finish_turn(
                 session_id, turn_start, iteration + 1, total_usage

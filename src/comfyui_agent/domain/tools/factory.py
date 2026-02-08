@@ -59,6 +59,17 @@ def create_internal_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[To
     ]
 
 
+def create_readonly_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[Tool]:
+    """Create read-only tools for sub-agent use (no side effects)."""
+    return [
+        SearchNodesTool(node_index),
+        GetNodeDetailTool(node_index),
+        GetConnectableTool(node_index),
+        ListModelsTool(client),
+        SystemStatsTool(client),
+    ]
+
+
 def create_all_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[Tool]:
     """Create all ComfyUI tools as a single dispatcher.
 

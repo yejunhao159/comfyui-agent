@@ -25,8 +25,10 @@ import aiohttp_cors
 from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.application.context_manager import ContextManager
 from comfyui_agent.application.message_converter import api_messages_to_chat_items
+from comfyui_agent.application.summarizer import Summarizer
 from comfyui_agent.domain.models.events import Event, EventType
-from comfyui_agent.domain.tools.factory import create_all_tools
+from comfyui_agent.domain.tools.factory import create_all_tools, create_readonly_tools
+from comfyui_agent.domain.tools.subagent import SubAgentTool
 from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
 from comfyui_agent.infrastructure.config import AppConfig
 from comfyui_agent.infrastructure.event_bus import EventBus
@@ -64,14 +66,30 @@ class WebServer:
             max_tokens=config.llm.max_tokens,
             base_url=config.llm.base_url,
             event_bus=self.event_bus,
+            max_retries=config.llm.max_retries,
+            retry_base_delay_ms=config.llm.retry_base_delay_ms,
+            retry_max_delay_ms=config.llm.retry_max_delay_ms,
         )
         self.session_store = SessionStore(db_path=config.agent.session_db)
         self.node_index = NodeIndex()
         tools = create_all_tools(self.comfyui, self.node_index)
+        readonly_tools = create_readonly_tools(self.comfyui, self.node_index)
+        subagent_tool = SubAgentTool(
+            llm=self.llm,
+            session_store=self.session_store,
+            event_bus=self.event_bus,
+            read_only_tools=readonly_tools,
+        )
+        tools.append(subagent_tool)
         context_manager = ContextManager(
             model=config.llm.model,
             max_output_tokens=config.llm.max_tokens,
             context_budget=config.agent.context_budget,
+        )
+        summarizer = Summarizer(
+            llm=self.llm,
+            session_store=self.session_store,
+            event_bus=self.event_bus,
         )
         self.agent = AgentLoop(
             llm=self.llm,
@@ -80,6 +98,7 @@ class WebServer:
             event_bus=self.event_bus,
             max_iterations=config.agent.max_iterations,
             context_manager=context_manager,
+            summarizer=summarizer,
         )
         self._ws_clients: dict[str, list[web.WebSocketResponse]] = {}
 

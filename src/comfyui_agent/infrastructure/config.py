@@ -23,6 +23,9 @@ class LLMConfig(BaseModel):
     temperature: float = 0.7
     api_key: str = Field(default="")
     base_url: str = Field(default="")
+    max_retries: int = 5
+    retry_base_delay_ms: int = 2000
+    retry_max_delay_ms: int = 60000
 
     def resolve_api_key(self) -> str:
         if self.api_key:

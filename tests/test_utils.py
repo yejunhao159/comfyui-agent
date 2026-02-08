@@ -44,6 +44,9 @@ class TestAppConfig:
         config = AppConfig()
         assert config.comfyui.base_url == "http://127.0.0.1:6006"
         assert config.llm.model == "claude-sonnet-4-5-20250929"
+        assert config.llm.max_retries == 5
+        assert config.llm.retry_base_delay_ms == 2000
+        assert config.llm.retry_max_delay_ms == 60000
         assert config.agent.max_iterations == 20
         assert config.server.port == 5200
         assert config.logging.level == "INFO"

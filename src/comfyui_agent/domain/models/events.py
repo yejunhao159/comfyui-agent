@@ -71,6 +71,16 @@ class EventType(str, Enum):
     # Workflow events — sent to plugin for canvas integration
     WORKFLOW_SUBMITTED = "workflow.submitted"
 
+    # Retry / resilience events
+    LLM_RETRY = "llm.retry"  # {attempt, max_retries, delay_ms, error}
+
+    # Sub-agent events
+    SUBAGENT_START = "subagent.start"  # {task, child_session_id}
+    SUBAGENT_END = "subagent.end"  # {result_preview}
+
+    # Context management events
+    CONTEXT_SUMMARIZED = "context.summarized"  # {original_tokens, summary_tokens}
+
 
 # ============================================================
 # Event Data Classes

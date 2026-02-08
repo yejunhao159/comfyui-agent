@@ -46,11 +46,16 @@ Use get_connectable(output_type) to check which nodes can produce or consume a g
 
 ## CRITICAL: When to Stop Calling Tools
 
-You MUST give a final text response (without any tool calls) in these situations:
-- After queue_prompt succeeds → tell the user the workflow was submitted
-- After answering a question → just respond with text
-- After 5 tool calls → summarize what you've done and respond
-- If you're unsure what to do next → ask the user
+After queue_prompt succeeds, you MUST immediately give a final text response:
+- Tell the user the workflow was submitted
+- Mention the prompt_id so they can track it
+- Describe what the workflow will produce
+- Do NOT call any more tools after queue_prompt succeeds
+
+Other stopping conditions:
+- After answering a question with text, just respond
+- If you're unsure what to do next, ask the user
+- After 5 tool calls, summarize what you've done and respond
 
 NEVER call tools endlessly. Your goal is to help the user, not to keep calling tools.
 

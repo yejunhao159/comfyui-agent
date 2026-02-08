@@ -1,11 +1,14 @@
 """LLM client for Claude API with tool_use support.
 
 Wraps the Anthropic SDK to provide streaming responses and tool calling.
+Includes retry logic with exponential backoff for transient errors.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
@@ -55,6 +58,9 @@ class LLMClient:
         temperature: float = 0.7,
         base_url: str = "",
         event_bus: EventBus | None = None,
+        max_retries: int = 5,
+        retry_base_delay_ms: int = 2000,
+        retry_max_delay_ms: int = 60000,
     ) -> None:
         client_kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
@@ -64,6 +70,9 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.event_bus = event_bus
+        self.max_retries = max_retries
+        self.retry_base_delay_ms = retry_base_delay_ms
+        self.retry_max_delay_ms = retry_max_delay_ms
 
     async def chat(
         self,
@@ -71,10 +80,7 @@ class LLMClient:
         tools: list[ToolSchema] | None = None,
         system: str = "",
     ) -> LLMResponse:
-        """Send messages to Claude and get a complete response.
-
-        Uses streaming internally for real-time event emission.
-        """
+        """Send messages to Claude with retry on transient errors."""
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -93,6 +99,50 @@ class LLMClient:
                 for t in tools
             ]
 
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return await self._do_chat(kwargs)
+            except (anthropic.RateLimitError, anthropic.InternalServerError) as e:
+                last_error = e
+                if attempt == self.max_retries:
+                    break
+                delay_ms = self._calc_delay(attempt, e)
+                logger.warning(
+                    "LLM API error (attempt %d/%d): %s — retrying in %dms",
+                    attempt, self.max_retries, e, delay_ms,
+                )
+                if self.event_bus:
+                    await self.event_bus.emit(Event(
+                        type=EventType.LLM_RETRY,
+                        data={
+                            "attempt": attempt,
+                            "max_retries": self.max_retries,
+                            "delay_ms": delay_ms,
+                            "error": str(e),
+                        },
+                    ))
+                await asyncio.sleep(delay_ms / 1000.0)
+
+        raise last_error  # type: ignore[misc]
+
+    def _calc_delay(self, attempt: int, error: Exception) -> int:
+        """Calculate retry delay with exponential backoff + jitter."""
+        # Respect Retry-After header if present
+        if hasattr(error, "response") and error.response is not None:
+            retry_after = error.response.headers.get("retry-after")
+            if retry_after:
+                try:
+                    return int(float(retry_after) * 1000)
+                except (ValueError, TypeError):
+                    pass
+
+        base = self.retry_base_delay_ms * (2 ** (attempt - 1))
+        jitter = random.uniform(0.8, 1.2)
+        return min(int(base * jitter), self.retry_max_delay_ms)
+
+    async def _do_chat(self, kwargs: dict[str, Any]) -> LLMResponse:
+        """Core chat logic — single attempt, no retry."""
         response = LLMResponse()
 
         async with self.client.messages.stream(**kwargs) as stream:
