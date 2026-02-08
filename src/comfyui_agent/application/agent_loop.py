@@ -88,6 +88,7 @@ class AgentLoop:
         self._cancel_flags[session_id] = False
         iteration = -1
         recent_tools: list[str] = []  # Track recent tool names for loop detection
+        workflow_submitted = False  # Track if queue_prompt succeeded
 
         try:
             for iteration in range(self.max_iterations):
@@ -107,18 +108,30 @@ class AgentLoop:
                 if self.context_manager:
                     messages = self.context_manager.prepare_messages(messages)
 
-                # Loop detection: inject warning if same tool called 3+ times
-                loop_warning = self._check_tool_loop(recent_tools)
+                # Build system prompt with dynamic warnings
                 system = self.system_prompt
+                loop_warning = self._check_tool_loop(recent_tools)
                 if loop_warning:
-                    system = self.system_prompt + "\n\n" + loop_warning
+                    system += "\n\n" + loop_warning
 
-                # Call LLM
-                response = await self.llm.chat(
-                    messages=messages,
-                    tools=self.tool_executor.schemas or None,
-                    system=system,
-                )
+                # After workflow submitted, force LLM to give final answer
+                if workflow_submitted:
+                    system += (
+                        "\n\n⚠️ WORKFLOW ALREADY SUBMITTED. You MUST now give a "
+                        "final text response to the user. Do NOT call any more tools."
+                    )
+                    # Remove tools to force text-only response
+                    response = await self.llm.chat(
+                        messages=messages,
+                        tools=None,
+                        system=system,
+                    )
+                else:
+                    response = await self.llm.chat(
+                        messages=messages,
+                        tools=self.tool_executor.schemas or None,
+                        system=system,
+                    )
 
                 # Accumulate usage
                 for k in total_usage:
@@ -140,6 +153,12 @@ class AgentLoop:
                         response.tool_calls, session_id
                     )
                     messages.append(build_tool_results_message(tool_results))
+
+                    # Check if queue_prompt was called successfully
+                    if "queue_prompt" in recent_tools[-len(response.tool_calls):]:
+                        workflow_submitted = True
+                        logger.info("Workflow submitted, next iteration will force final answer")
+
                     continue
 
                 # Final answer
