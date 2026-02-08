@@ -18,6 +18,7 @@ import logging
 import time
 from typing import Any
 
+from comfyui_agent.application.context_manager import ContextManager
 from comfyui_agent.application.message_builder import (
     build_assistant_message,
     build_tool_result_block,
@@ -51,6 +52,7 @@ class AgentLoop:
         event_bus: EventBusPort,
         max_iterations: int = 20,
         system_prompt: str | None = None,
+        context_manager: ContextManager | None = None,
     ) -> None:
         self.llm = llm
         self.tool_executor = ToolExecutor(tools)
@@ -59,6 +61,7 @@ class AgentLoop:
         self.state_machine = AgentStateMachine()
         self.max_iterations = max_iterations
         self.system_prompt = system_prompt or get_default_prompt()
+        self.context_manager = context_manager
         self._cancel_flags: dict[str, bool] = {}
 
     async def run(self, session_id: str, user_input: str) -> str:
@@ -98,6 +101,10 @@ class AgentLoop:
                 self.state_machine.process(Event(type=EventType.STATE_THINKING))
                 # Emit thinking event so frontend can reset streaming text
                 await self._emit_state(EventType.STATE_THINKING, session_id)
+
+                # Compact context if needed
+                if self.context_manager:
+                    messages = self.context_manager.prepare_messages(messages)
 
                 # Call LLM
                 response = await self.llm.chat(

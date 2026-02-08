@@ -23,6 +23,7 @@ from aiohttp import web
 import aiohttp_cors
 
 from comfyui_agent.application.agent_loop import AgentLoop
+from comfyui_agent.application.context_manager import ContextManager
 from comfyui_agent.domain.models.events import Event, EventType
 from comfyui_agent.domain.tools.factory import create_all_tools
 from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
@@ -66,12 +67,18 @@ class WebServer:
         self.session_store = SessionStore(db_path=config.agent.session_db)
         self.node_index = NodeIndex()
         tools = create_all_tools(self.comfyui, self.node_index)
+        context_manager = ContextManager(
+            model=config.llm.model,
+            max_output_tokens=config.llm.max_tokens,
+            context_budget=config.agent.context_budget,
+        )
         self.agent = AgentLoop(
             llm=self.llm,
             tools=tools,
             session_store=self.session_store,
             event_bus=self.event_bus,
             max_iterations=config.agent.max_iterations,
+            context_manager=context_manager,
         )
         self._ws_clients: dict[str, list[web.WebSocketResponse]] = {}
 

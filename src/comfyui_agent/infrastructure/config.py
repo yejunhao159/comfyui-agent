@@ -33,6 +33,7 @@ class LLMConfig(BaseModel):
 class AgentConfig(BaseModel):
     max_iterations: int = 20
     session_db: str = "data/sessions.db"
+    context_budget: int = 0  # 0 = auto-resolve from model name
 
 
 class ServerConfig(BaseModel):
