@@ -3,6 +3,7 @@ import type {
   ChatItem,
   ConnectionStatus,
   ServerEvent,
+  ToolCall,
   TurnStats,
 } from "../types";
 
@@ -42,6 +43,29 @@ export function useAgentWS(agentUrl: string) {
       return copy;
     });
   }, []);
+
+  const updateLastAgentTools = useCallback(
+    (updater: (tools: ToolCall[]) => ToolCall[]) => {
+      setItems((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          const it = copy[i];
+          if (it?.kind === "message" && it.data.role === "agent") {
+            copy[i] = {
+              ...it,
+              data: {
+                ...it.data,
+                toolCalls: updater(it.data.toolCalls),
+              },
+            };
+            break;
+          }
+        }
+        return copy;
+      });
+    },
+    []
+  );
 
   // --- WebSocket connection ---
   const connect = useCallback(() => {
@@ -92,7 +116,6 @@ export function useAgentWS(agentUrl: string) {
           break;
 
         case "response":
-          // Final response — update the streaming message
           if (msg.content) {
             updateLastAgentMessage(msg.content);
           }
@@ -107,6 +130,7 @@ export function useAgentWS(agentUrl: string) {
               id: nextId(),
               role: "agent",
               content: `**Error:** ${msg.error ?? "Unknown error"}`,
+              toolCalls: [],
               timestamp: Date.now(),
             },
           });
@@ -126,37 +150,66 @@ export function useAgentWS(agentUrl: string) {
       if (et === "stream.text_delta") {
         streamTextRef.current += (data.text as string) ?? "";
         updateLastAgentMessage(streamTextRef.current);
+      } else if (et === "state.thinking") {
+        // Reset streaming text at the start of each LLM iteration
+        // so text from iteration N doesn't concatenate with iteration N+1
+        streamTextRef.current = "";
       } else if (et === "state.conversation_start") {
         streamTextRef.current = "";
-        // Create a placeholder agent message for streaming
         appendItem({
           kind: "message",
           data: {
             id: nextId(),
             role: "agent",
             content: "",
+            toolCalls: [],
             timestamp: Date.now(),
           },
         });
-      } else if (
-        et === "state.tool_executing" ||
-        et === "state.tool_completed" ||
-        et === "state.tool_failed"
-      ) {
-        const typeMap: Record<string, "executing" | "completed" | "failed"> = {
-          "state.tool_executing": "executing",
-          "state.tool_completed": "completed",
-          "state.tool_failed": "failed",
-        };
-        appendItem({
-          kind: "tool",
-          data: {
-            id: nextId(),
-            type: typeMap[et]!,
-            toolName: (data.tool_name as string) ?? "unknown",
-            result: data.result as string | undefined,
-            timestamp: Date.now(),
-          },
+      } else if (et === "state.tool_executing") {
+        const toolName = (data.tool_name as string) ?? "unknown";
+        const toolId = (data.tool_id as string) ?? nextId();
+        updateLastAgentTools((tools) => [
+          ...tools,
+          { id: toolId, name: toolName, status: "executing" },
+        ]);
+      } else if (et === "state.tool_completed") {
+        const toolName = (data.tool_name as string) ?? "";
+        updateLastAgentTools((tools) => {
+          const copy = [...tools];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i]!.name === toolName && copy[i]!.status === "executing") {
+              copy[i] = { ...copy[i]!, status: "completed" };
+              break;
+            }
+          }
+          return copy;
+        });
+      } else if (et === "state.tool_failed") {
+        const toolName = (data.tool_name as string) ?? "";
+        const error = (data.error as string) ?? "Unknown error";
+        updateLastAgentTools((tools) => {
+          const copy = [...tools];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i]!.name === toolName && copy[i]!.status === "executing") {
+              copy[i] = { ...copy[i]!, status: "failed", error };
+              break;
+            }
+          }
+          return copy;
+        });
+      } else if (et === "message.tool_result") {
+        const toolName = (data.tool_name as string) ?? "";
+        const result = (data.result as string) ?? "";
+        updateLastAgentTools((tools) => {
+          const copy = [...tools];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i]!.name === toolName) {
+              copy[i] = { ...copy[i]!, result };
+              break;
+            }
+          }
+          return copy;
         });
       } else if (et === "turn.end") {
         const usage = (data.usage as Record<string, number>) ?? {};
@@ -167,9 +220,18 @@ export function useAgentWS(agentUrl: string) {
           outputTokens: usage.output_tokens ?? 0,
         };
         appendItem({ kind: "stats", data: stats });
+      } else if (et === "workflow.submitted") {
+        window.dispatchEvent(
+          new CustomEvent("comfyui-agent:load-workflow", {
+            detail: {
+              workflow: data.workflow,
+              promptId: data.prompt_id,
+            },
+          })
+        );
       }
     },
-    [appendItem, updateLastAgentMessage]
+    [appendItem, updateLastAgentMessage, updateLastAgentTools]
   );
 
   // --- send message ---
@@ -177,13 +239,13 @@ export function useAgentWS(agentUrl: string) {
     (text: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-      // Add user message
       appendItem({
         kind: "message",
         data: {
           id: nextId(),
           role: "user",
           content: text,
+          toolCalls: [],
           timestamp: Date.now(),
         },
       });

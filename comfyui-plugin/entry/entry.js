@@ -9,6 +9,77 @@ import { api } from "../../scripts/api.js";
 
 const EXTENSION_NAME = "comfyui-agent";
 
+/**
+ * Convert ComfyUI API format to LiteGraph graph format.
+ * API: {node_id: {class_type, inputs}} → Graph: {nodes: [...], links: [...]}
+ */
+function convertApiToGraph(apiWorkflow) {
+  const nodes = [];
+  const links = [];
+  let linkId = 1;
+  const nodeIds = Object.keys(apiWorkflow);
+
+  // Create nodes with basic grid layout
+  for (let i = 0; i < nodeIds.length; i++) {
+    const nodeId = nodeIds[i];
+    const nodeData = apiWorkflow[nodeId];
+    const col = i % 3;
+    const row = Math.floor(i / 3);
+
+    // Separate widget values (primitives) from connections (arrays)
+    const widgetValues = [];
+    for (const [, value] of Object.entries(nodeData.inputs || {})) {
+      if (!Array.isArray(value)) {
+        widgetValues.push(value);
+      }
+    }
+
+    nodes.push({
+      id: parseInt(nodeId),
+      type: nodeData.class_type,
+      pos: [100 + col * 350, 100 + row * 300],
+      size: [300, 150],
+      flags: {},
+      order: i,
+      mode: 0,
+      properties: { "Node name for S&R": nodeData.class_type },
+      widgets_values: widgetValues,
+    });
+  }
+
+  // Create links from input connections
+  for (const nodeId of nodeIds) {
+    const nodeData = apiWorkflow[nodeId];
+    let inputSlot = 0;
+    for (const [, value] of Object.entries(nodeData.inputs || {})) {
+      if (Array.isArray(value) && value.length === 2) {
+        const [sourceId, outputSlot] = value;
+        links.push([
+          linkId,
+          parseInt(sourceId),
+          outputSlot,
+          parseInt(nodeId),
+          inputSlot,
+          "*",
+        ]);
+        linkId++;
+      }
+      inputSlot++;
+    }
+  }
+
+  return {
+    last_node_id: Math.max(...nodeIds.map(Number)),
+    last_link_id: linkId - 1,
+    nodes,
+    links,
+    groups: [],
+    config: {},
+    extra: { ds: { scale: 1, offset: [0, 0] } },
+    version: 0.4,
+  };
+}
+
 app.registerExtension({
   name: EXTENSION_NAME,
 
@@ -25,6 +96,34 @@ app.registerExtension({
     } catch (e) {
       console.warn("[comfyui-agent] Failed to load CSS:", e);
     }
+
+    // Listen for workflow load events from the React chat panel
+    window.addEventListener("comfyui-agent:load-workflow", async (e) => {
+      const { workflow } = e.detail || {};
+      if (!workflow) return;
+
+      try {
+        // Use ComfyUI's built-in API format loader
+        await app.loadGraphData(
+          await convertApiToGraph(workflow),
+          true,  // clean — clear existing graph
+          true,  // restore_view
+          workflow,  // pass original API workflow
+        );
+        console.log("[comfyui-agent] Workflow loaded to canvas");
+      } catch (err) {
+        console.warn("[comfyui-agent] loadGraphData failed, trying file fallback:", err);
+        try {
+          // Fallback: load as JSON file
+          const blob = new Blob([JSON.stringify(workflow)], { type: "application/json" });
+          const file = new File([blob], "agent_workflow.json", { type: "application/json" });
+          await app.handleFile(file);
+          console.log("[comfyui-agent] Workflow loaded via handleFile");
+        } catch (err2) {
+          console.error("[comfyui-agent] Failed to load workflow:", err2);
+        }
+      }
+    });
 
     // Register sidebar tab
     app.extensionManager.registerSidebarTab({

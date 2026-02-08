@@ -85,11 +85,12 @@ class EventBus:
 
     def emit_sync(self, event: Event) -> None:
         """Emit an event synchronously (schedules async handlers)."""
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(self.emit(event))
-        else:
-            loop.run_until_complete(self.emit(event))
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.emit(event))
+        except RuntimeError:
+            # No running loop — run synchronously
+            asyncio.run(self.emit(event))
 
     def get_history(self, event_type: EventType | None = None) -> list[Event]:
         """Get event history, optionally filtered by type."""

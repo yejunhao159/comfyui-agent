@@ -72,3 +72,16 @@ class Tool(ABC):
             "description": info.description,
             "input_schema": info.parameters,
         }
+
+
+MAX_TOOL_OUTPUT = 15000  # chars — keep tool output manageable for LLM context
+
+
+def truncate_output(text: str, max_len: int = MAX_TOOL_OUTPUT) -> str:
+    """Truncate tool output, keeping first and last portions."""
+    if len(text) <= max_len:
+        return text
+    half = max_len // 2
+    mid_lines = text[half:-half].count("\n")
+    return f"{text[:half]}\n\n... [{mid_lines} lines truncated] ...\n\n{text[-half:]}"
+

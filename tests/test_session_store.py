@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from comfyui_agent.infrastructure.session_store import SessionStore
+from comfyui_agent.infrastructure.persistence.session_store import SessionStore
 
 
 @pytest.fixture

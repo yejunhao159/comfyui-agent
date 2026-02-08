@@ -17,7 +17,8 @@ export default defineConfig({
       output: {
         // Single chunk for simplicity
         manualChunks: undefined,
-        assetFileNames: "[name][extname]",
+        assetFileNames: (info) =>
+          info.name?.endsWith(".css") ? "style.css" : "[name][extname]",
       },
     },
     cssCodeSplit: false,

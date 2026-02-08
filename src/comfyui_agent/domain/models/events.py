@@ -68,6 +68,9 @@ class EventType(str, Enum):
     COMFYUI_ERROR = "comfyui.error"
     COMFYUI_QUEUE_UPDATE = "comfyui.queue_update"
 
+    # Workflow events — sent to plugin for canvas integration
+    WORKFLOW_SUBMITTED = "workflow.submitted"
+
 
 # ============================================================
 # Event Data Classes

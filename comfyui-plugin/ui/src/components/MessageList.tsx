@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import type { ChatItem } from "../types";
 import { MessageBubble } from "./MessageBubble";
-import { ToolStatus } from "./ToolStatus";
 import { TurnStatsBar } from "./TurnStatsBar";
 
 interface Props {
@@ -44,8 +43,6 @@ export const MessageList: React.FC<Props> = ({ items, isStreaming }) => {
                 }
               />
             );
-          case "tool":
-            return <ToolStatus key={item.data.id} event={item.data} />;
           case "stats":
             return <TurnStatsBar key={`stats-${i}`} stats={item.data} />;
         }

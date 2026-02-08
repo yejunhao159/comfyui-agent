@@ -54,7 +54,6 @@ class SessionStore:
     async def create_session(self, title: str = "") -> str:
         db = await self._get_db()
         session_id = str(uuid.uuid4())
-        import time
         now = time.time()
         await db.execute(
             "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -78,7 +77,6 @@ class SessionStore:
     async def save_messages(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         """Replace all messages for a session."""
         db = await self._get_db()
-        import time
         now = time.time()
 
         await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))

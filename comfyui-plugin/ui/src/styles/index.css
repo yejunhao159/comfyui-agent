@@ -227,34 +227,105 @@
   font-style: italic;
 }
 
-/* --- Tool status --- */
-.cua-tool {
+/* --- Tool calls (embedded in agent messages) --- */
+.cua-toolcalls {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cua-toolcall {
+  background: #151525;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cua-toolcall-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 5px 10px;
+  cursor: pointer;
   font-size: 12px;
   color: #8892a0;
+  user-select: none;
+  transition: background 0.15s;
 }
 
-.cua-tool-icon {
+.cua-toolcall-header:hover {
+  background: #1a1a30;
+}
+
+.cua-toolcall-icon {
   font-size: 13px;
+  flex-shrink: 0;
 }
 
-.cua-tool-executing .cua-tool-icon {
+.cua-toolcall-executing .cua-toolcall-icon {
   color: #ffd740;
+  animation: cua-pulse 1.5s ease-in-out infinite;
 }
 
-.cua-tool-completed .cua-tool-icon {
+.cua-toolcall-completed .cua-toolcall-icon {
   color: #00e676;
 }
 
-.cua-tool-failed .cua-tool-icon {
+.cua-toolcall-failed .cua-toolcall-icon {
   color: #ff5252;
 }
 
-.cua-tool-name {
+.cua-toolcall-name {
   font-family: "SF Mono", "Fira Code", monospace;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cua-toolcall-badge {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.cua-toolcall-executing .cua-toolcall-badge {
+  color: #ffd740;
+}
+
+.cua-toolcall-completed .cua-toolcall-badge {
+  color: #00e676;
+}
+
+.cua-toolcall-failed .cua-toolcall-badge {
+  color: #ff5252;
+}
+
+.cua-toolcall-body {
+  padding: 0 10px 8px;
+}
+
+.cua-toolcall-result {
+  background: #0a0a1a;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: #a0a8b4;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cua-toolcall-error {
+  color: #ff5252;
+}
+
+@keyframes cua-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* --- Turn stats --- */

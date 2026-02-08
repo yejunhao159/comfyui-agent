@@ -24,13 +24,13 @@ import aiohttp_cors
 
 from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.domain.models.events import Event, EventType
-from comfyui_agent.domain.tools.comfyui_tools import create_all_tools
-from comfyui_agent.infrastructure.comfyui_client import ComfyUIClient
+from comfyui_agent.domain.tools.factory import create_all_tools
+from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
 from comfyui_agent.infrastructure.config import AppConfig
 from comfyui_agent.infrastructure.event_bus import EventBus
-from comfyui_agent.infrastructure.llm_client import LLMClient
+from comfyui_agent.infrastructure.clients.llm_client import LLMClient
 from comfyui_agent.infrastructure.logging_setup import setup_logging
-from comfyui_agent.infrastructure.session_store import SessionStore
+from comfyui_agent.infrastructure.persistence.session_store import SessionStore
 from comfyui_agent.knowledge.node_index import NodeIndex
 
 logger = logging.getLogger(__name__)

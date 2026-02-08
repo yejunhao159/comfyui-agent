@@ -1,17 +1,18 @@
 /** Types shared across the chat panel. */
 
+export interface ToolCall {
+  id: string;
+  name: string;
+  status: "executing" | "completed" | "failed";
+  result?: string;
+  error?: string;
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
   content: string;
-  timestamp: number;
-}
-
-export interface ToolEvent {
-  id: string;
-  type: "executing" | "completed" | "failed";
-  toolName: string;
-  result?: string;
+  toolCalls: ToolCall[];
   timestamp: number;
 }
 
@@ -24,7 +25,6 @@ export interface TurnStats {
 
 export type ChatItem =
   | { kind: "message"; data: AgentMessage }
-  | { kind: "tool"; data: ToolEvent }
   | { kind: "stats"; data: TurnStats };
 
 /** WebSocket message from the server. */

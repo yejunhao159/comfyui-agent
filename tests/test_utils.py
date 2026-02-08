@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from comfyui_agent.domain.tools.comfyui_tools import truncate_output
+from comfyui_agent.domain.tools.base import truncate_output
 from comfyui_agent.infrastructure.config import AppConfig
 
 
