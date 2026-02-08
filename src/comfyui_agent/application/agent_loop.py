@@ -39,6 +39,13 @@ Monitoring:
 - comfyui_get_history: Execution history and output images
 - comfyui_interrupt: Stop current execution
 
+Management:
+- comfyui_upload_image: Upload image for img2img/ControlNet workflows
+- comfyui_download_model: Download model from URL (HuggingFace, Civitai, etc.)
+- comfyui_install_custom_node: Install custom node from git repo
+- comfyui_free_memory: Free GPU VRAM and RAM
+- comfyui_get_folder_paths: Show where models and outputs are stored
+
 ## Workflow Building Process
 
 1. Search for relevant nodes: comfyui_search_nodes(query="...")
@@ -47,6 +54,13 @@ Monitoring:
 4. Validate: comfyui_validate_workflow(workflow={...})
 5. Submit: comfyui_queue_prompt(workflow={...})
 6. Check results: comfyui_get_history(prompt_id="...")
+
+## Model Management
+
+- Use comfyui_list_models to check available models first
+- If no models are available, use comfyui_download_model to download from HuggingFace or Civitai
+- Use comfyui_get_folder_paths to see where models should be stored
+- Use comfyui_free_memory before loading large models if VRAM is low
 
 ## ComfyUI Workflow API Format
 

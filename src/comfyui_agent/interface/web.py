@@ -60,6 +60,7 @@ class WebServer:
             api_key=api_key,
             model=config.llm.model,
             max_tokens=config.llm.max_tokens,
+            base_url=config.llm.base_url,
             event_bus=self.event_bus,
         )
         self.session_store = SessionStore(db_path=config.agent.session_db)

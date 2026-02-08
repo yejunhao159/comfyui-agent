@@ -22,6 +22,7 @@ class LLMConfig(BaseModel):
     max_tokens: int = 8192
     temperature: float = 0.7
     api_key: str = Field(default="")
+    base_url: str = Field(default="")
 
     def resolve_api_key(self) -> str:
         if self.api_key:

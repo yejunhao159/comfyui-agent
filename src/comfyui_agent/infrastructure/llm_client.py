@@ -53,9 +53,13 @@ class LLMClient:
         model: str = "claude-sonnet-4-5-20250929",
         max_tokens: int = 8192,
         temperature: float = 0.7,
+        base_url: str = "",
         event_bus: EventBus | None = None,
     ) -> None:
-        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = anthropic.AsyncAnthropic(**client_kwargs)
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -77,7 +81,7 @@ class LLMClient:
             "messages": messages,
         }
         if system:
-            kwargs["system"] = system
+            kwargs["system"] = [{"type": "text", "text": system}]
         if tools:
             kwargs["tools"] = [
                 {
@@ -124,7 +128,7 @@ class LLMClient:
         """Process a streaming event from Claude."""
         event_type = type(event).__name__
 
-        if event_type == "TextDelta":
+        if event_type == "TextEvent":
             response.text += event.text
             if self.event_bus:
                 await self.event_bus.emit(Event(
@@ -132,14 +136,14 @@ class LLMClient:
                     data={"text": event.text},
                 ))
 
-        elif event_type == "InputJsonDelta":
+        elif event_type == "InputJsonEvent":
             if self.event_bus:
                 await self.event_bus.emit(Event(
                     type=EventType.STREAM_TOOL_CALL_DELTA,
                     data={"partial_json": event.partial_json},
                 ))
 
-        elif event_type == "ContentBlockStart":
+        elif event_type == "RawContentBlockStartEvent":
             block = event.content_block
             if hasattr(block, "type") and block.type == "tool_use":
                 if self.event_bus:
@@ -148,7 +152,7 @@ class LLMClient:
                         data={"tool_name": block.name, "tool_id": block.id},
                     ))
 
-        elif event_type == "MessageStop":
+        elif event_type == "ParsedMessageStopEvent":
             if self.event_bus:
                 await self.event_bus.emit(Event(
                     type=EventType.STREAM_MESSAGE_STOP,

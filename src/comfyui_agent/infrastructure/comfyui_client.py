@@ -156,6 +156,18 @@ class ComfyUIClient:
         """Get the URL for an image."""
         return f"{self.base_url}/api/view?filename={filename}&subfolder={subfolder}&type={folder_type}"
 
+    async def get_folder_paths(self) -> dict[str, Any]:
+        """Get all folder paths configuration (where models are stored)."""
+        return await self._get("/internal/folder_paths")
+
+    async def free_memory(self, unload_models: bool = True, free_memory: bool = True) -> None:
+        """Free VRAM/RAM by unloading models and clearing caches."""
+        await self._post("/api/free", data={
+            "unload_models": unload_models,
+            "free_memory": free_memory,
+        })
+        logger.info("Memory freed (unload=%s, free=%s)", unload_models, free_memory)
+
     # ============================================================
     # WebSocket Methods
     # ============================================================
