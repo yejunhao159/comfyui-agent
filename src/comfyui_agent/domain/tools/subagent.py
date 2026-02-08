@@ -93,11 +93,17 @@ class SubAgentTool(Tool):
         ))
 
         try:
+            # Use a separate event bus so sub-agent's internal events
+            # (tool_executing, text_delta, etc.) don't leak to the frontend.
+            # Only SUBAGENT_START/END are emitted on the main bus above.
+            from comfyui_agent.infrastructure.event_bus import EventBus
+            silent_bus = EventBus()
+
             sub_agent = AgentLoop(
                 llm=self._llm,
                 tools=self._read_only_tools,
                 session_store=self._session_store,
-                event_bus=self._event_bus,
+                event_bus=silent_bus,
                 max_iterations=self._max_iterations,
                 system_prompt=_SUBAGENT_SYSTEM_PROMPT,
             )

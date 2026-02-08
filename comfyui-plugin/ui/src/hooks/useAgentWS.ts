@@ -3,7 +3,9 @@ import type {
   ChatItem,
   ConnectionStatus,
   ContentBlock,
+  RetryNotice,
   ServerEvent,
+  SubAgentBlock,
   ToolCall,
   TurnStats,
 } from "../types";
@@ -114,6 +116,34 @@ export function useAgentWS(agentUrl: string) {
           ...it,
           data: { ...it.data, toolCalls, blocks },
         };
+      });
+    },
+    [updateLastAgent]
+  );
+
+  /** Push a sub-agent block into the agent message's blocks. */
+  const pushSubAgentBlock = useCallback(
+    (subagent: SubAgentBlock) => {
+      updateLastAgent((it) => {
+        const blocks: ContentBlock[] = [
+          ...it.data.blocks,
+          { kind: "subagent", subagent },
+        ];
+        return { ...it, data: { ...it.data, blocks } };
+      });
+    },
+    [updateLastAgent]
+  );
+
+  /** Push a retry notice block. */
+  const pushRetryBlock = useCallback(
+    (retry: RetryNotice) => {
+      updateLastAgent((it) => {
+        const blocks: ContentBlock[] = [
+          ...it.data.blocks,
+          { kind: "retry", retry },
+        ];
+        return { ...it, data: { ...it.data, blocks } };
       });
     },
     [updateLastAgent]
@@ -238,6 +268,39 @@ export function useAgentWS(agentUrl: string) {
         const toolName = (data.tool_name as string) ?? "";
         const result = (data.result as string) ?? "";
         updateTool(toolName, { result });
+      } else if (et === "subagent.start") {
+        const childId = (data.child_session_id as string) ?? nextId();
+        const task = (data.task as string) ?? "";
+        pushSubAgentBlock({ id: childId, task, status: "executing" });
+      } else if (et === "subagent.end") {
+        // Find the executing sub-agent block and mark it completed
+        const preview = (data.result_preview as string) ?? "";
+        updateLastAgent((it) => {
+          const blocks = [...it.data.blocks];
+          for (let i = blocks.length - 1; i >= 0; i--) {
+            const b = blocks[i]!;
+            if (b.kind === "subagent" && b.subagent.status === "executing") {
+              const failed = preview.startsWith("Error:");
+              blocks[i] = {
+                kind: "subagent",
+                subagent: {
+                  ...b.subagent,
+                  status: failed ? "failed" : "completed",
+                  result: preview,
+                },
+              };
+              break;
+            }
+          }
+          return { ...it, data: { ...it.data, blocks } };
+        });
+      } else if (et === "llm.retry") {
+        pushRetryBlock({
+          attempt: (data.attempt as number) ?? 0,
+          maxRetries: (data.max_retries as number) ?? 0,
+          delayMs: (data.delay_ms as number) ?? 0,
+          error: (data.error as string) ?? "",
+        });
       } else if (et === "turn.end") {
         const usage = (data.usage as Record<string, number>) ?? {};
         const stats: TurnStats = {
@@ -258,7 +321,7 @@ export function useAgentWS(agentUrl: string) {
         );
       }
     },
-    [appendItem, updateStreamingText, pushToolBlock, updateTool]
+    [appendItem, updateStreamingText, pushToolBlock, updateTool, pushSubAgentBlock, updateLastAgent, pushRetryBlock]
   );
 
   // --- send message ---

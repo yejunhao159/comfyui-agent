@@ -449,6 +449,150 @@
   50% { opacity: 0.4; }
 }
 
+/* --- Sub-agent card --- */
+.cua-subagent {
+  background: #FFFFFF;
+  border: 1px solid #C7D7F0;
+  border-radius: 10px;
+  overflow: hidden;
+  animation: cua-slide-in 0.2s ease-out;
+}
+
+.cua-subagent-executing {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+}
+
+.cua-subagent-failed {
+  background: #FEF2F2;
+  border-color: #FECACA;
+}
+
+.cua-subagent-completed {
+  border-color: #A7F3D0;
+}
+
+.cua-subagent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #475569;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.cua-subagent-header:hover {
+  background: #F8FAFC;
+}
+
+.cua-subagent-executing .cua-subagent-header:hover {
+  background: #DBEAFE;
+}
+
+.cua-subagent-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.cua-subagent-executing .cua-subagent-icon {
+  animation: cua-pulse 1.5s ease-in-out infinite;
+}
+
+.cua-subagent-completed .cua-subagent-icon {
+  color: #10B981;
+}
+
+.cua-subagent-failed .cua-subagent-icon {
+  color: #EF4444;
+}
+
+.cua-subagent-name {
+  font-family: "SF Mono", "Fira Code", monospace;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cua-subagent-badge {
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.cua-subagent-executing .cua-subagent-badge {
+  color: #3B82F6;
+  background: #DBEAFE;
+}
+
+.cua-subagent-completed .cua-subagent-badge {
+  color: #10B981;
+  background: #ECFDF5;
+}
+
+.cua-subagent-failed .cua-subagent-badge {
+  color: #EF4444;
+  background: #FEF2F2;
+}
+
+.cua-subagent-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.25s ease;
+  padding: 0 12px;
+}
+
+.cua-subagent-body.cua-body-open {
+  max-height: 400px;
+  padding: 0 12px 8px;
+  overflow-y: auto;
+}
+
+.cua-subagent-task {
+  font-size: 12px;
+  color: #64748B;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.cua-subagent-task strong {
+  color: #475569;
+}
+
+.cua-subagent-progress {
+  padding: 4px 0;
+}
+
+/* --- Retry notice --- */
+.cua-retry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 4px 0;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #92400E;
+  animation: cua-slide-in 0.2s ease-out;
+}
+
+.cua-retry-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.cua-retry-text {
+  flex: 1;
+}
+
 /* --- Turn stats --- */
 .cua-stats {
   align-self: center;

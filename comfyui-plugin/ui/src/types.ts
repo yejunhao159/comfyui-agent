@@ -8,10 +8,26 @@ export interface ToolCall {
   error?: string;
 }
 
-/** Ordered content block — text or tool call, rendered chronologically. */
+export interface SubAgentBlock {
+  id: string;
+  task: string;
+  status: "executing" | "completed" | "failed";
+  result?: string;
+}
+
+export interface RetryNotice {
+  attempt: number;
+  maxRetries: number;
+  delayMs: number;
+  error: string;
+}
+
+/** Ordered content block — text, tool call, sub-agent, or retry notice. */
 export type ContentBlock =
   | { kind: "text"; text: string }
-  | { kind: "tool"; tool: ToolCall };
+  | { kind: "tool"; tool: ToolCall }
+  | { kind: "subagent"; subagent: SubAgentBlock }
+  | { kind: "retry"; retry: RetryNotice };
 
 export interface AgentMessage {
   id: string;

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import type { AgentMessage, ContentBlock, ToolCall } from "../types";
+import type { AgentMessage, ContentBlock, RetryNotice, SubAgentBlock, ToolCall } from "../types";
 
 interface Props {
   message: AgentMessage;
@@ -73,6 +73,70 @@ const ToolCallItem: React.FC<{ tool: ToolCall }> = ({ tool }) => {
   );
 };
 
+const SUBAGENT_ICONS: Record<string, string> = {
+  executing: "\u{1F50D}",
+  completed: "\u2713",
+  failed: "\u2717",
+};
+
+const SUBAGENT_LABELS: Record<string, string> = {
+  executing: "\u7814\u7A76\u4E2D...",
+  completed: "\u5B8C\u6210",
+  failed: "\u5931\u8D25",
+};
+
+const SubAgentItem: React.FC<{ subagent: SubAgentBlock }> = ({ subagent }) => {
+  const [open, setOpen] = useState(subagent.status === "executing");
+  const prevStatus = useRef(subagent.status);
+
+  useEffect(() => {
+    if (prevStatus.current === "executing" && subagent.status !== "executing") {
+      // Auto-collapse after a short delay so user can see the result
+      const timer = setTimeout(() => setOpen(false), 1500);
+      return () => clearTimeout(timer);
+    }
+    prevStatus.current = subagent.status;
+  }, [subagent.status]);
+
+  return (
+    <div className={`cua-subagent cua-subagent-${subagent.status}`}>
+      <div
+        className="cua-subagent-header"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="cua-subagent-icon">{SUBAGENT_ICONS[subagent.status]}</span>
+        <span className="cua-subagent-name">delegate_task</span>
+        <span className="cua-subagent-badge">{SUBAGENT_LABELS[subagent.status]}</span>
+        <span className={`cua-toolcall-chevron ${open ? "cua-chevron-open" : ""}`}>
+          {"\u25B8"}
+        </span>
+      </div>
+      <div className={`cua-subagent-body ${open ? "cua-body-open" : ""}`}>
+        <div className="cua-subagent-task">
+          <strong>{"\u4EFB\u52A1:"}</strong> {subagent.task}
+        </div>
+        {subagent.status === "executing" && (
+          <div className="cua-subagent-progress">
+            <span className="cua-thinking">{"\u5B50\u4EE3\u7406\u6B63\u5728\u7814\u7A76\u4E2D..."}</span>
+          </div>
+        )}
+        {subagent.result && (
+          <pre className="cua-toolcall-result">{subagent.result}</pre>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const RetryNoticeItem: React.FC<{ retry: RetryNotice }> = ({ retry }) => (
+  <div className="cua-retry">
+    <span className="cua-retry-icon">{"\u26A0"}</span>
+    <span className="cua-retry-text">
+      {`\u91CD\u8BD5\u4E2D (${retry.attempt}/${retry.maxRetries}) \u2014 ${(retry.delayMs / 1000).toFixed(1)}s \u540E\u91CD\u8BD5`}
+    </span>
+  </div>
+);
+
 const AgentMarkdown = React.memo<{ content: string }>(({ content }) => (
   <ReactMarkdown
     remarkPlugins={[remarkGfm]}
@@ -102,6 +166,16 @@ const BlockRenderer: React.FC<{
         <AgentMarkdown content={block.text} />
       </div>
     );
+  }
+  if (block.kind === "subagent") {
+    return (
+      <div className="cua-toolcalls">
+        <SubAgentItem subagent={block.subagent} />
+      </div>
+    );
+  }
+  if (block.kind === "retry") {
+    return <RetryNoticeItem retry={block.retry} />;
   }
   // tool block
   return (
