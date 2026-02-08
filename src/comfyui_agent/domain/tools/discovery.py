@@ -117,3 +117,38 @@ class ValidateWorkflowTool(Tool):
         if not workflow:
             return ToolResult.error("workflow is required")
         return ToolResult.success(self.index.validate_workflow(workflow))
+
+
+class GetConnectableTool(Tool):
+    """Given an output type, list nodes that can produce or consume it."""
+
+    def __init__(self, node_index: NodeIndex) -> None:
+        self.index = node_index
+
+    def info(self) -> ToolInfo:
+        return ToolInfo(
+            name="comfyui_get_connectable",
+            description=(
+                "Given a connection type (e.g. MODEL, CLIP, LATENT, CONDITIONING, IMAGE), "
+                "list which nodes produce it and which nodes consume it. "
+                "Use this to find compatible nodes when building workflows. "
+                "Call with no arguments to get a summary of all connection types."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "output_type": {
+                        "type": "string",
+                        "description": "Connection type to query (e.g. 'MODEL', 'CLIP', 'LATENT', 'IMAGE')",
+                    },
+                },
+                "required": [],
+            },
+        )
+
+    async def run(self, params: dict[str, Any]) -> ToolResult:
+        output_type = params.get("output_type")
+        if output_type:
+            return ToolResult.success(self.index.get_connectable(output_type))
+        else:
+            return ToolResult.success(self.index.get_type_summary())

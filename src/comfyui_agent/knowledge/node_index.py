@@ -26,6 +26,11 @@ class NodeIndex:
         self._nodes: dict[str, dict[str, Any]] = {}  # class_name → raw info
         self._by_category: dict[str, list[str]] = {}  # category → [class_names]
         self._search_corpus: dict[str, str] = {}  # class_name → searchable text
+        # Type compatibility indexes
+        # type → [(class_name, output_index, output_name), ...]
+        self._type_producers: dict[str, list[tuple[str, int, str]]] = {}
+        # type → [(class_name, input_name), ...]
+        self._type_consumers: dict[str, list[tuple[str, str]]] = {}
         self._built = False
 
     @property
@@ -52,6 +57,8 @@ class NodeIndex:
         self._nodes = all_info
         self._by_category.clear()
         self._search_corpus.clear()
+        self._type_producers.clear()
+        self._type_consumers.clear()
 
         for class_name, info in all_info.items():
             # Index by category
@@ -64,11 +71,17 @@ class NodeIndex:
             corpus = f"{class_name} {display} {category} {desc}".lower()
             self._search_corpus[class_name] = corpus
 
+            # Build type producer index from outputs
+            self._index_outputs(class_name, info)
+            # Build type consumer index from inputs
+            self._index_inputs(class_name, info)
+
         self._built = True
         logger.info(
-            "Node index built: %d nodes in %d categories",
+            "Node index built: %d nodes in %d categories, %d connection types",
             len(self._nodes),
             len(self._by_category),
+            len(self._type_producers | self._type_consumers),
         )
 
     def list_categories(self) -> str:
@@ -242,6 +255,76 @@ class NodeIndex:
             lines.append(f"Warnings ({len(warnings)}):")
             for w in warnings:
                 lines.append(f"  ⚠ {w}")
+        return "\n".join(lines)
+
+    def _index_outputs(self, class_name: str, info: dict[str, Any]) -> None:
+        """Index a node's output types as producers."""
+        output_types = info.get("output", [])
+        output_names = info.get("output_name", [])
+        for i, otype in enumerate(output_types):
+            if not isinstance(otype, str):
+                continue
+            oname = output_names[i] if i < len(output_names) else f"output_{i}"
+            self._type_producers.setdefault(otype, []).append(
+                (class_name, i, oname)
+            )
+
+    def _index_inputs(self, class_name: str, info: dict[str, Any]) -> None:
+        """Index a node's input types as consumers."""
+        input_info = info.get("input", {})
+        for section in ("required", "optional"):
+            for param_name, param_spec in input_info.get(section, {}).items():
+                if (
+                    isinstance(param_spec, (list, tuple))
+                    and len(param_spec) > 0
+                    and isinstance(param_spec[0], str)
+                    and param_spec[0].isupper()
+                ):
+                    self._type_consumers.setdefault(param_spec[0], []).append(
+                        (class_name, param_name)
+                    )
+
+    def get_connectable(self, output_type: str, limit: int = 20) -> str:
+        """Given an output type, list nodes that can receive it."""
+        if not self._built:
+            return "Node index not built yet."
+        output_type = output_type.upper()
+
+        consumers = self._type_consumers.get(output_type, [])
+        producers = self._type_producers.get(output_type, [])
+
+        if not consumers and not producers:
+            return f"No nodes found for type '{output_type}'."
+
+        lines = [f"Type: {output_type}"]
+
+        if producers:
+            lines.append(f"\n  Produced by ({len(producers)} nodes):")
+            for class_name, idx, oname in producers[:limit]:
+                display = self._nodes[class_name].get("display_name", class_name)
+                lines.append(f"    {class_name} [{display}] → output[{idx}] {oname}")
+
+        if consumers:
+            lines.append(f"\n  Consumed by ({len(consumers)} nodes):")
+            for class_name, input_name in consumers[:limit]:
+                display = self._nodes[class_name].get("display_name", class_name)
+                lines.append(f"    {class_name} [{display}] ← input.{input_name}")
+
+        return "\n".join(lines)
+
+    def get_type_summary(self) -> str:
+        """Return a summary of all connection types and their node counts."""
+        if not self._built:
+            return "Node index not built yet."
+        all_types = sorted(set(self._type_producers) | set(self._type_consumers))
+        if not all_types:
+            return "No connection types found."
+
+        lines = [f"Connection types ({len(all_types)}):"]
+        for t in all_types:
+            p_count = len(self._type_producers.get(t, []))
+            c_count = len(self._type_consumers.get(t, []))
+            lines.append(f"  {t}: {p_count} producers, {c_count} consumers")
         return "\n".join(lines)
 
     def _format_param(self, param_spec: Any) -> str:

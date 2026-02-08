@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 _ACTION_NAMES = [
     "search_nodes",
     "get_node_detail",
+    "get_connectable",
     "validate_workflow",
     "queue_prompt",
     "system_stats",
@@ -35,6 +36,7 @@ Execute ComfyUI operations.
 ## Discovery
 - search_nodes(query?, category?) — Search nodes by keyword or browse categories.
 - get_node_detail(node_class) — Get inputs/outputs/description for a specific node type.
+- get_connectable(output_type?) — List nodes that produce/consume a connection type (e.g. MODEL, CLIP). No args = summary of all types.
 - validate_workflow(workflow) — Validate workflow before submitting.
 
 ## Execution

@@ -141,6 +141,8 @@ def node_index() -> NodeIndex:
     idx._nodes = fake_info
     idx._by_category.clear()
     idx._search_corpus.clear()
+    idx._type_producers.clear()
+    idx._type_consumers.clear()
     for class_name, info in fake_info.items():
         category = info.get("category", "uncategorized")
         idx._by_category.setdefault(category, []).append(class_name)
@@ -148,6 +150,8 @@ def node_index() -> NodeIndex:
         desc = info.get("description", "")
         corpus = f"{class_name} {display} {category} {desc}".lower()
         idx._search_corpus[class_name] = corpus
+        idx._index_outputs(class_name, info)
+        idx._index_inputs(class_name, info)
     idx._built = True
     return idx
 
@@ -301,3 +305,76 @@ class TestNodeIndexValidation:
         result = node_index.validate_workflow(workflow)
         assert "unknown input" in result
         assert "unknown_param" in result
+
+
+class TestTypeIndex:
+    def test_type_producers_built(self, node_index: NodeIndex):
+        """Verify producer index was built from output types."""
+        assert "MODEL" in node_index._type_producers
+        assert "CLIP" in node_index._type_producers
+        assert "LATENT" in node_index._type_producers
+        assert "IMAGE" in node_index._type_producers
+
+    def test_type_consumers_built(self, node_index: NodeIndex):
+        """Verify consumer index was built from input types."""
+        assert "MODEL" in node_index._type_consumers
+        assert "CLIP" in node_index._type_consumers
+        assert "LATENT" in node_index._type_consumers
+        assert "IMAGE" in node_index._type_consumers
+
+    def test_model_producers(self, node_index: NodeIndex):
+        producers = node_index._type_producers["MODEL"]
+        names = [p[0] for p in producers]
+        assert "CheckpointLoaderSimple" in names
+
+    def test_model_consumers(self, node_index: NodeIndex):
+        consumers = node_index._type_consumers["MODEL"]
+        names = [c[0] for c in consumers]
+        assert "KSampler" in names
+
+    def test_latent_has_multiple_producers(self, node_index: NodeIndex):
+        producers = node_index._type_producers["LATENT"]
+        names = [p[0] for p in producers]
+        assert "KSampler" in names
+        assert "EmptyLatentImage" in names
+
+    def test_enum_inputs_not_indexed(self, node_index: NodeIndex):
+        """Enum inputs (lists) should not appear in type consumers."""
+        # sampler_name is an enum, not a type reference
+        for consumers in node_index._type_consumers.values():
+            for class_name, input_name in consumers:
+                assert input_name != "sampler_name"
+
+    def test_get_connectable_model(self, node_index: NodeIndex):
+        result = node_index.get_connectable("MODEL")
+        assert "CheckpointLoaderSimple" in result
+        assert "KSampler" in result
+        assert "Produced by" in result
+        assert "Consumed by" in result
+
+    def test_get_connectable_case_insensitive(self, node_index: NodeIndex):
+        result = node_index.get_connectable("model")
+        assert "MODEL" in result
+        assert "CheckpointLoaderSimple" in result
+
+    def test_get_connectable_unknown_type(self, node_index: NodeIndex):
+        result = node_index.get_connectable("NONEXISTENT")
+        assert "No nodes found" in result
+
+    def test_get_connectable_not_built(self):
+        idx = NodeIndex()
+        result = idx.get_connectable("MODEL")
+        assert "not built" in result
+
+    def test_get_type_summary(self, node_index: NodeIndex):
+        result = node_index.get_type_summary()
+        assert "Connection types" in result
+        assert "MODEL" in result
+        assert "LATENT" in result
+        assert "producers" in result
+        assert "consumers" in result
+
+    def test_get_type_summary_not_built(self):
+        idx = NodeIndex()
+        result = idx.get_type_summary()
+        assert "not built" in result

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from comfyui_agent.domain.ports import ComfyUIPort
 from comfyui_agent.domain.tools.base import Tool
 from comfyui_agent.domain.tools.discovery import (
+    GetConnectableTool,
     GetNodeDetailTool,
     SearchNodesTool,
     ValidateWorkflowTool,
@@ -38,6 +39,7 @@ def create_internal_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[To
         # Discovery
         SearchNodesTool(node_index),
         GetNodeDetailTool(node_index),
+        GetConnectableTool(node_index),
         ValidateWorkflowTool(node_index),
         # Execution
         QueuePromptTool(client),
