@@ -43,7 +43,7 @@ class QueuePromptTool(Tool):
             prompt_id = result.get("prompt_id", "unknown")
             return ToolResult.success(
                 f"Workflow submitted. prompt_id: {prompt_id}",
-                data={"prompt_id": prompt_id},
+                data={"prompt_id": prompt_id, "workflow": workflow},
             )
         except Exception as e:
             return ToolResult.error(f"Failed to queue prompt: {e}")
