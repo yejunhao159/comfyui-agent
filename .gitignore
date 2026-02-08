@@ -13,6 +13,7 @@ venv/
 # IDE
 .idea/
 .vscode/
+.kiro/
 *.swp
 *.swo
 
@@ -31,3 +32,4 @@ _research/
 
 # Node.js (comfyui-plugin/ui)
 node_modules/
+tsconfig.tsbuildinfo
