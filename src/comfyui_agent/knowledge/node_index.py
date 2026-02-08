@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any
 
-from comfyui_agent.infrastructure.comfyui_client import ComfyUIClient
+from comfyui_agent.domain.ports import ComfyUIPort
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class NodeIndex:
     def categories(self) -> list[str]:
         return sorted(self._by_category.keys())
 
-    async def build(self, client: ComfyUIClient) -> None:
+    async def build(self, client: ComfyUIPort) -> None:
         """Fetch all node info from ComfyUI and build the index."""
         logger.info("Building node index...")
         try:

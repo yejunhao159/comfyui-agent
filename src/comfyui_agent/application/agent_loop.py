@@ -14,39 +14,18 @@ from typing import Any, AsyncIterator
 from comfyui_agent.application.state_machine import AgentStateMachine
 from comfyui_agent.domain.models.events import AgentState, Event, EventType
 from comfyui_agent.domain.tools.base import Tool, ToolResult
-from comfyui_agent.infrastructure.event_bus import EventBus
-from comfyui_agent.infrastructure.llm_client import LLMClient, LLMResponse, ToolSchema
-from comfyui_agent.infrastructure.session_store import SessionStore
+from comfyui_agent.domain.ports import EventBusPort, LLMPort, SessionPort
+
+# ToolSchema and LLMResponse are pure data classes with no infrastructure deps.
+# They are imported here for runtime use (constructing tool schemas, type hints).
+from comfyui_agent.infrastructure.llm_client import LLMResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a ComfyUI assistant. You help users create, manage, and debug ComfyUI workflows through natural language.
+SYSTEM_PROMPT = """\
+You are a ComfyUI assistant. You help users create, manage, and debug ComfyUI workflows through natural language.
 
-## comfyui Tool — Available Actions
-
-Use the `comfyui` tool with {"action": "<name>", "params": {...}} format.
-
-### Discovery
-- search_nodes(query?, category?) — Search nodes by keyword or browse categories. No params = list all categories.
-- get_node_detail(node_class) — Get inputs/outputs/description for a specific node type.
-- validate_workflow(workflow) — Validate workflow before submitting. workflow = API format dict.
-
-### Execution
-- queue_prompt(workflow) — Submit workflow for execution. Always validate first.
-
-### Monitoring
-- system_stats() — GPU/VRAM status and version info.
-- list_models(folder?) — List available models. folder: checkpoints, loras, vae, controlnet, upscale_models, embeddings, clip. Default: checkpoints.
-- get_queue() — Current execution queue status.
-- get_history(prompt_id?) — Execution history. With prompt_id: details + output image URLs.
-- interrupt() — Stop current execution.
-
-### Management
-- upload_image(url?, filepath?, filename?) — Upload image for img2img/ControlNet. Provide url or filepath.
-- download_model(url, folder, filename?) — Download model from URL (HuggingFace, Civitai). Use get_folder_paths first.
-- install_custom_node(git_url) — Install custom node from git repo. Restart ComfyUI after.
-- free_memory(unload_models?, free_memory?) — Free GPU VRAM and RAM. Both default to true.
-- get_folder_paths() — Show where models and outputs are stored.
+Use the `comfyui` tool with {"action": "<name>", "params": {...}} format. See the tool description for available actions.
 
 ## Workflow Building Process
 
@@ -56,13 +35,6 @@ Use the `comfyui` tool with {"action": "<name>", "params": {...}} format.
 4. Validate: comfyui(action="validate_workflow", params={"workflow": {...}})
 5. Submit: comfyui(action="queue_prompt", params={"workflow": {...}})
 6. Check results: comfyui(action="get_history", params={"prompt_id": "..."})
-
-## Model Management
-
-- Use list_models to check available models first
-- If no models are available, use download_model to download from HuggingFace or Civitai
-- Use get_folder_paths to see where models should be stored
-- Use free_memory before loading large models if VRAM is low
 
 ## ComfyUI Workflow API Format
 
@@ -80,12 +52,13 @@ Example txt2img:
   "7": {"class_type": "SaveImage", "inputs": {"images": ["6", 0], "filename_prefix": "output"}}
 }
 
-## Important Rules
+## Rules
 
 - Always search_nodes and get_node_detail before using a node type
 - Always validate_workflow before queue_prompt
 - Use the actual model names from list_models, not guessed names
-- Node connections: [node_id_string, output_index_int]"""
+- Node connections: [node_id_string, output_index_int]
+- After install_custom_node, use refresh_index to update the node index"""
 
 
 MAX_TOOL_RESULT_CHARS = 15000
@@ -105,10 +78,10 @@ class AgentLoop:
 
     def __init__(
         self,
-        llm: LLMClient,
+        llm: LLMPort,
         tools: list[Tool],
-        session_store: SessionStore,
-        event_bus: EventBus,
+        session_store: SessionPort,
+        event_bus: EventBusPort,
         max_iterations: int = 20,
         system_prompt: str = SYSTEM_PROMPT,
     ) -> None:

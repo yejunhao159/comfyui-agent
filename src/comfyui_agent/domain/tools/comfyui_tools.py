@@ -15,13 +15,18 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import aiohttp
 
 from comfyui_agent.domain.tools.base import Tool, ToolInfo, ToolResult
-from comfyui_agent.infrastructure.comfyui_client import ComfyUIClient
-from comfyui_agent.knowledge.node_index import NodeIndex
+from comfyui_agent.domain.ports import ComfyUIPort
+
+if TYPE_CHECKING:
+    from comfyui_agent.knowledge.node_index import NodeIndex
+    from comfyui_agent.knowledge.node_index import NodeIndex
+
+logger = logging.getLogger(__name__)
 
 MAX_TOOL_OUTPUT = 15000  # chars — OpenCode uses 30K, we use 15K for LLM efficiency
 
@@ -157,7 +162,7 @@ class ValidateWorkflowTool(Tool):
 class QueuePromptTool(Tool):
     """Submit a workflow to ComfyUI for execution."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -203,7 +208,7 @@ class QueuePromptTool(Tool):
 class SystemStatsTool(Tool):
     """Get ComfyUI system stats."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -224,7 +229,7 @@ class SystemStatsTool(Tool):
 class ListModelsTool(Tool):
     """List available models."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -264,7 +269,7 @@ class ListModelsTool(Tool):
 class GetQueueTool(Tool):
     """Get queue status."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -294,7 +299,7 @@ class GetQueueTool(Tool):
 class GetHistoryTool(Tool):
     """Get execution history."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -352,7 +357,7 @@ class GetHistoryTool(Tool):
 class InterruptTool(Tool):
     """Interrupt running execution."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -370,8 +375,6 @@ class InterruptTool(Tool):
             return ToolResult.error(f"Failed to interrupt: {e}")
 
 
-logger = logging.getLogger(__name__)
-
 # ============================================================
 # Management Tools
 # ============================================================
@@ -380,7 +383,7 @@ logger = logging.getLogger(__name__)
 class UploadImageTool(Tool):
     """Upload an image to ComfyUI for use in workflows (img2img, ControlNet, etc.)."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -452,7 +455,7 @@ class UploadImageTool(Tool):
 class DownloadModelTool(Tool):
     """Download a model file from URL to ComfyUI's model directory."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -545,7 +548,7 @@ class DownloadModelTool(Tool):
 class InstallCustomNodeTool(Tool):
     """Install a ComfyUI custom node from a git repository."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -646,7 +649,7 @@ class InstallCustomNodeTool(Tool):
 class FreeMemoryTool(Tool):
     """Free VRAM/RAM by unloading models."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -699,7 +702,7 @@ class FreeMemoryTool(Tool):
 class GetFolderPathsTool(Tool):
     """Get ComfyUI's model folder paths."""
 
-    def __init__(self, client: ComfyUIClient) -> None:
+    def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
 
     def info(self) -> ToolInfo:
@@ -793,18 +796,75 @@ _ACTION_NAMES = [
     "install_custom_node",
     "free_memory",
     "get_folder_paths",
+    "refresh_index",
 ]
+
+_TOOL_DESCRIPTION = """\
+Execute ComfyUI operations.
+
+## Discovery
+- search_nodes(query?, category?) — Search nodes by keyword or browse categories. No params = list all categories.
+- get_node_detail(node_class) — Get inputs/outputs/description for a specific node type.
+- validate_workflow(workflow) — Validate workflow before submitting. workflow = API format dict.
+
+## Execution
+- queue_prompt(workflow) — Submit workflow for execution. Always validate first.
+
+## Monitoring
+- system_stats() — GPU/VRAM status and version info.
+- list_models(folder?) — List available models. folder: checkpoints, loras, vae, controlnet, upscale_models, embeddings, clip. Default: checkpoints.
+- get_queue() — Current execution queue status.
+- get_history(prompt_id?) — Execution history. With prompt_id: details + output image URLs.
+- interrupt() — Stop current execution.
+
+## Management
+- upload_image(url?, filepath?, filename?) — Upload image for img2img/ControlNet. Provide url or filepath.
+- download_model(url, folder, filename?) — Download model from URL (HuggingFace, Civitai). Use get_folder_paths first.
+- install_custom_node(git_url) — Install custom node from git repo. Restart ComfyUI after.
+- free_memory(unload_models?, free_memory?) — Free GPU VRAM and RAM. Both default to true.
+- get_folder_paths() — Show where models and outputs are stored.
+- refresh_index() — Rebuild node index after installing custom nodes. No restart needed."""
+
+
+class RefreshNodeIndexTool(Tool):
+    """Refresh the node index by re-fetching from ComfyUI."""
+
+    def __init__(self, client: ComfyUIPort, node_index: NodeIndex) -> None:
+        self.client = client
+        self.index = node_index
+
+    def info(self) -> ToolInfo:
+        return ToolInfo(
+            name="comfyui_refresh_index",
+            description="Rebuild the node index after installing custom nodes.",
+            parameters={"type": "object", "properties": {}, "required": []},
+        )
+
+    async def run(self, params: dict[str, Any]) -> ToolResult:
+        try:
+            old_count = self.index.node_count
+            await self.index.build(self.client)
+            new_count = self.index.node_count
+            diff = new_count - old_count
+            msg = f"Node index refreshed: {new_count} nodes in {len(self.index.categories)} categories"
+            if diff > 0:
+                msg += f" (+{diff} new nodes)"
+            elif diff < 0:
+                msg += f" ({diff} nodes removed)"
+            return ToolResult.success(msg)
+        except Exception as e:
+            return ToolResult.error(f"Failed to refresh node index: {e}")
 
 
 class ComfyUIDispatcher(Tool):
     """Single dispatcher tool that routes to all ComfyUI operations.
 
-    Instead of exposing 14 separate tools (~1366 tokens of schema per request),
-    this exposes one tool with an action+params pattern (~200 tokens).
-    The LLM learns available actions from the system prompt.
+    Instead of exposing 14+ separate tools (~1366 tokens of schema per request),
+    this exposes one tool with an action+params pattern.
+    Action descriptions live in the tool's description field, not the system prompt.
     """
 
-    def __init__(self, client: ComfyUIClient, node_index: NodeIndex) -> None:
+    def __init__(self, client: ComfyUIPort, node_index: NodeIndex) -> None:
         self._tools: dict[str, Tool] = {}
         for t in _create_internal_tools(client, node_index):
             # Strip "comfyui_" prefix: "comfyui_search_nodes" -> "search_nodes"
@@ -814,10 +874,7 @@ class ComfyUIDispatcher(Tool):
     def info(self) -> ToolInfo:
         return ToolInfo(
             name="comfyui",
-            description=(
-                "Execute ComfyUI operations. "
-                "See system prompt for available actions and their parameters."
-            ),
+            description=_TOOL_DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {
@@ -828,7 +885,7 @@ class ComfyUIDispatcher(Tool):
                     },
                     "params": {
                         "type": "object",
-                        "description": "Action-specific parameters (see system prompt for each action)",
+                        "description": "Action-specific parameters",
                     },
                 },
                 "required": ["action"],
@@ -853,7 +910,7 @@ class ComfyUIDispatcher(Tool):
 # ============================================================
 
 
-def _create_internal_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]:
+def _create_internal_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[Tool]:
     """Create all internal ComfyUI tools (used by the dispatcher)."""
     return [
         # Discovery
@@ -874,13 +931,14 @@ def _create_internal_tools(client: ComfyUIClient, node_index: NodeIndex) -> list
         InstallCustomNodeTool(client),
         FreeMemoryTool(client),
         GetFolderPathsTool(client),
+        RefreshNodeIndexTool(client, node_index),
     ]
 
 
-def create_all_tools(client: ComfyUIClient, node_index: NodeIndex) -> list[Tool]:
+def create_all_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[Tool]:
     """Create all ComfyUI tools as a single dispatcher.
 
-    Returns a list with one ComfyUIDispatcher that routes to all 14 operations.
-    This reduces per-request token overhead from ~1366 to ~200 tokens.
+    Returns a list with one ComfyUIDispatcher that routes to all 15 operations.
+    Action descriptions are in the tool's description field, not the system prompt.
     """
     return [ComfyUIDispatcher(client, node_index)]
