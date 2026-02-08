@@ -87,6 +87,7 @@ class AgentLoop:
         total_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
         self._cancel_flags[session_id] = False
         iteration = -1
+        recent_tools: list[str] = []  # Track recent tool names for loop detection
 
         try:
             for iteration in range(self.max_iterations):
@@ -106,11 +107,17 @@ class AgentLoop:
                 if self.context_manager:
                     messages = self.context_manager.prepare_messages(messages)
 
+                # Loop detection: inject warning if same tool called 3+ times
+                loop_warning = self._check_tool_loop(recent_tools)
+                system = self.system_prompt
+                if loop_warning:
+                    system = self.system_prompt + "\n\n" + loop_warning
+
                 # Call LLM
                 response = await self.llm.chat(
                     messages=messages,
                     tools=self.tool_executor.schemas or None,
-                    system=self.system_prompt,
+                    system=system,
                 )
 
                 # Accumulate usage
@@ -119,6 +126,10 @@ class AgentLoop:
 
                 # Tool calls → execute and loop
                 if response.has_tool_calls():
+                    # Track tool names for loop detection
+                    for tc in response.tool_calls:
+                        recent_tools.append(self._tool_display_name(tc))
+
                     messages.append(build_assistant_message(response))
                     await self._emit(
                         EventType.MESSAGE_ASSISTANT, session_id,
@@ -218,6 +229,32 @@ class AgentLoop:
         if isinstance(tc.input, dict) and "action" in tc.input:
             return str(tc.input["action"])
         return tc.name
+
+    @staticmethod
+    def _check_tool_loop(
+        recent_tools: list[str], threshold: int = 3
+    ) -> str | None:
+        """Detect if the agent is stuck calling the same tool repeatedly.
+
+        Returns a warning string to inject into the system prompt, or None.
+        """
+        if len(recent_tools) < threshold:
+            return None
+        tail = recent_tools[-threshold:]
+        if len(set(tail)) == 1:
+            tool_name = tail[0]
+            count = len(recent_tools)
+            logger.warning(
+                "Loop detected: %s called %d times in last %d calls",
+                tool_name, threshold, count,
+            )
+            return (
+                f"⚠️ LOOP DETECTED: You have called '{tool_name}' {threshold} "
+                f"times in a row. STOP repeating this tool call. "
+                f"Either try a completely different approach, or explain "
+                f"the problem to the user and ask for guidance."
+            )
+        return None
 
     async def _execute_tools(
         self, tool_calls: list[Any], session_id: str

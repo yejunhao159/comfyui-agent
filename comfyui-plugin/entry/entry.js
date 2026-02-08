@@ -99,7 +99,7 @@ app.registerExtension({
 
     // Listen for workflow load events from the React chat panel
     window.addEventListener("comfyui-agent:load-workflow", async (e) => {
-      const { workflow } = e.detail || {};
+      const { workflow, promptId } = e.detail || {};
       if (!workflow) return;
 
       try {
@@ -122,6 +122,17 @@ app.registerExtension({
         } catch (err2) {
           console.error("[comfyui-agent] Failed to load workflow:", err2);
         }
+      }
+
+      // Save workflow to ComfyUI's user workflows folder
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const filename = `agent_${promptId ? promptId.slice(0, 8) : ts}.json`;
+        const graphData = app.graph.serialize();
+        await api.storeUserData(`workflows/${filename}`, JSON.stringify(graphData));
+        console.log(`[comfyui-agent] Workflow saved: workflows/${filename}`);
+      } catch (err) {
+        console.warn("[comfyui-agent] Failed to save workflow to user folder:", err);
       }
     });
 

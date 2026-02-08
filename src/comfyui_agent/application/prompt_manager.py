@@ -44,7 +44,15 @@ Example txt2img:
 - Always validate_workflow before queue_prompt
 - Use the actual model names from list_models, not guessed names
 - Node connections: [node_id_string, output_index_int]
-- After install_custom_node, use refresh_index to update the node index"""
+- After install_custom_node, use refresh_index to update the node index
+
+## Error Handling
+
+- If a tool call fails, analyze the error and try a DIFFERENT approach — do NOT repeat the same call
+- If validate_workflow fails, fix the specific error mentioned, then re-validate ONCE
+- If queue_prompt fails, explain the error to the user and ask if they want to retry
+- Never call the same tool more than 3 times in a row — if stuck, explain the situation to the user
+- When an execution error occurs, check get_history for details before attempting fixes"""
 
 
 def get_default_prompt() -> str:
