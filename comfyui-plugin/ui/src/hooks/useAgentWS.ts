@@ -7,6 +7,7 @@ import type {
   ToolCall,
   TurnStats,
 } from "../types";
+import { getSavedSessionId, saveSessionId } from "./useSessionAPI";
 
 const RECONNECT_DELAY = 3000;
 
@@ -14,7 +15,9 @@ const RECONNECT_DELAY = 3000;
 export function useAgentWS(agentUrl: string) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [items, setItems] = useState<ChatItem[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(
+    getSavedSessionId()
+  );
   const [isProcessing, setIsProcessing] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -157,7 +160,10 @@ export function useAgentWS(agentUrl: string) {
           break;
 
         case "session_created":
-          if (msg.session_id) setSessionId(msg.session_id);
+          if (msg.session_id) {
+            setSessionId(msg.session_id);
+            saveSessionId(msg.session_id);
+          }
           break;
 
         case "event":
@@ -319,6 +325,27 @@ export function useAgentWS(agentUrl: string) {
     return () => window.removeEventListener("comfyui-agent:ask-node", handler);
   }, [sendMessage]);
 
+  /** Switch to a different session (called from session list). */
+  const switchSession = useCallback(
+    (newSessionId: string, historyItems: ChatItem[]) => {
+      setSessionId(newSessionId);
+      saveSessionId(newSessionId);
+      setItems(historyItems);
+      streamTextRef.current = "";
+      setIsProcessing(false);
+    },
+    []
+  );
+
+  /** Start a new empty session. */
+  const newSession = useCallback(() => {
+    setSessionId(null);
+    setItems([]);
+    streamTextRef.current = "";
+    setIsProcessing(false);
+    // Don't save to localStorage — will be saved when server creates it
+  }, []);
+
   return {
     status,
     items,
@@ -326,6 +353,8 @@ export function useAgentWS(agentUrl: string) {
     isProcessing,
     sendMessage,
     cancelRequest,
+    switchSession,
+    newSession,
     clearItems: () => setItems([]),
   };
 }

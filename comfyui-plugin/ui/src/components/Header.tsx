@@ -4,9 +4,10 @@ import type { ConnectionStatus } from "../types";
 interface Props {
   status: ConnectionStatus;
   onClear: () => void;
+  onToggleSessions?: () => void;
 }
 
-export const Header: React.FC<Props> = ({ status, onClear }) => {
+export const Header: React.FC<Props> = ({ status, onClear, onToggleSessions }) => {
   const statusConfig: Record<
     ConnectionStatus,
     { color: string; label: string }
@@ -21,14 +22,23 @@ export const Header: React.FC<Props> = ({ status, onClear }) => {
   return (
     <div className="cua-header">
       <div className="cua-header-left">
+        {onToggleSessions && (
+          <button
+            className="cua-header-btn"
+            onClick={onToggleSessions}
+            title="会话列表"
+          >
+            ☰
+          </button>
+        )}
         <span className="cua-header-title">ComfyUI Agent</span>
         <span className="cua-header-status">
           <span className="cua-dot" style={{ background: color }} />
           {label}
         </span>
       </div>
-      <button className="cua-header-clear" onClick={onClear} title="清空对话">
-        🗑
+      <button className="cua-header-btn" onClick={onClear} title="新建会话">
+        +
       </button>
     </div>
   );

@@ -24,6 +24,7 @@ import aiohttp_cors
 
 from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.application.context_manager import ContextManager
+from comfyui_agent.application.message_converter import api_messages_to_chat_items
 from comfyui_agent.domain.models.events import Event, EventType
 from comfyui_agent.domain.tools.factory import create_all_tools
 from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
@@ -94,6 +95,9 @@ class WebServer:
         sessions_delete = app.router.add_delete(
             "/api/sessions/{session_id}", self.handle_delete_session
         )
+        sessions_messages = app.router.add_get(
+            "/api/sessions/{session_id}/messages", self.handle_session_messages
+        )
         chat = app.router.add_post("/api/chat", self.handle_chat)
         chat_ws = app.router.add_get("/api/chat/ws", self.handle_chat_ws)
 
@@ -109,7 +113,7 @@ class WebServer:
                 for origin in self.config.server.cors_origins
             },
         )
-        for route in [health, sessions_list, sessions_create, sessions_delete, chat, chat_ws]:
+        for route in [health, sessions_list, sessions_create, sessions_delete, sessions_messages, chat, chat_ws]:
             cors.add(route)
 
         # Static files (web UI)
@@ -192,6 +196,16 @@ class WebServer:
         session_id = request.match_info["session_id"]
         await self.session_store.delete_session(session_id)
         return web.json_response({"deleted": session_id})
+
+    async def handle_session_messages(self, request: web.Request) -> web.Response:
+        """Load session messages in frontend ChatItem format."""
+        session_id = request.match_info["session_id"]
+        messages = await self.session_store.load_messages(session_id)
+        items = api_messages_to_chat_items(messages)
+        return web.json_response({
+            "session_id": session_id,
+            "items": items,
+        })
 
     async def handle_chat(self, request: web.Request) -> web.Response:
         """HTTP POST chat — returns full response (non-streaming)."""

@@ -44,3 +44,11 @@ export interface ServerEvent {
 }
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+
+/** Session metadata from the backend. */
+export interface Session {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
