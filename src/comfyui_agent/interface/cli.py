@@ -198,7 +198,12 @@ async def run_cli() -> None:
     )
 
     session_store = SessionStore(db_path=config.agent.session_db)
-    tools = create_all_tools(comfyui)
+
+    # Build node index
+    from comfyui_agent.knowledge.node_index import NodeIndex
+    node_index = NodeIndex()
+
+    tools = create_all_tools(comfyui, node_index)
 
     agent = AgentLoop(
         llm=llm,
@@ -214,6 +219,7 @@ async def run_cli() -> None:
 
     if comfyui_ok:
         await comfyui.connect_ws()
+        await node_index.build(comfyui)
 
     # Create session
     session_id = await session_store.create_session("CLI Session")

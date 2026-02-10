@@ -23,8 +23,12 @@ from aiohttp import web
 import aiohttp_cors
 
 from comfyui_agent.application.agent_loop import AgentLoop
+from comfyui_agent.application.canvas_state import CanvasState
 from comfyui_agent.application.context_manager import ContextManager
+from comfyui_agent.application.environment_probe import EnvironmentProbe
+from comfyui_agent.application.intent_analyzer import IntentAnalyzer
 from comfyui_agent.application.message_converter import api_messages_to_chat_items
+from comfyui_agent.application.prompt_builder import PromptBuilder, create_default_sections
 from comfyui_agent.application.summarizer import Summarizer
 from comfyui_agent.domain.models.events import Event, EventType
 from comfyui_agent.domain.tools.factory import create_all_tools, create_readonly_tools
@@ -91,6 +95,17 @@ class WebServer:
             session_store=self.session_store,
             event_bus=self.event_bus,
         )
+        # Environment awareness components
+        environment_probe = EnvironmentProbe(
+            client=self.comfyui,
+            node_index=self.node_index,
+        )
+        canvas_state = CanvasState(event_bus=self.event_bus)
+        intent_analyzer = IntentAnalyzer(llm=self.llm)
+        prompt_builder = PromptBuilder()
+        for section in create_default_sections():
+            prompt_builder.register_section(section)
+
         self.agent = AgentLoop(
             llm=self.llm,
             tools=tools,
@@ -99,6 +114,10 @@ class WebServer:
             max_iterations=config.agent.max_iterations,
             context_manager=context_manager,
             summarizer=summarizer,
+            prompt_builder=prompt_builder,
+            intent_analyzer=intent_analyzer,
+            environment_probe=environment_probe,
+            canvas_state=canvas_state,
         )
         self._ws_clients: dict[str, list[web.WebSocketResponse]] = {}
 

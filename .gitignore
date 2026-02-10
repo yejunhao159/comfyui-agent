@@ -33,3 +33,7 @@ _research/
 # Node.js (comfyui-plugin/ui)
 node_modules/
 tsconfig.tsbuildinfo
+
+
+# Hypothesis property-based testing cache
+.hypothesis/

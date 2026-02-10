@@ -18,12 +18,16 @@ import logging
 import time
 from typing import Any
 
+from comfyui_agent.application.canvas_state import CanvasState
 from comfyui_agent.application.context_manager import ContextManager
+from comfyui_agent.application.environment_probe import EnvironmentProbe
+from comfyui_agent.application.intent_analyzer import IntentAnalyzer
 from comfyui_agent.application.message_builder import (
     build_assistant_message,
     build_tool_result_block,
     build_tool_results_message,
 )
+from comfyui_agent.application.prompt_builder import PromptBuilder
 from comfyui_agent.application.prompt_manager import get_default_prompt
 from comfyui_agent.application.state_machine import AgentStateMachine
 from comfyui_agent.application.tool_executor import ToolExecutor
@@ -54,6 +58,10 @@ class AgentLoop:
         system_prompt: str | None = None,
         context_manager: ContextManager | None = None,
         summarizer: Any | None = None,
+        prompt_builder: PromptBuilder | None = None,
+        intent_analyzer: IntentAnalyzer | None = None,
+        environment_probe: EnvironmentProbe | None = None,
+        canvas_state: CanvasState | None = None,
     ) -> None:
         self.llm = llm
         self.tool_executor = ToolExecutor(tools)
@@ -64,6 +72,10 @@ class AgentLoop:
         self.system_prompt = system_prompt or get_default_prompt()
         self.context_manager = context_manager
         self.summarizer = summarizer
+        self.prompt_builder = prompt_builder
+        self.intent_analyzer = intent_analyzer
+        self.environment_probe = environment_probe
+        self.canvas_state = canvas_state
         self._cancel_flags: dict[str, bool] = {}
 
     async def run(self, session_id: str, user_input: str) -> str:
@@ -97,6 +109,35 @@ class AgentLoop:
         iteration = -1
         recent_tools: list[str] = []  # Track recent tool names for loop detection
 
+        # Intent analysis (before the ReAct loop)
+        intent_result = None
+        if self.intent_analyzer:
+            try:
+                intent_result = await self.intent_analyzer.analyze(user_input)
+                logger.info("Intent: topics=%s, env=%s", intent_result.topics, intent_result.environment_needed)
+            except Exception as exc:
+                logger.warning("Intent analysis error: %s", exc)
+
+        # Pre-build dynamic system prompt
+        dynamic_system: str | None = None
+        if self.prompt_builder:
+            env_snapshot = None
+            if self.environment_probe and (
+                intent_result is None or intent_result.environment_needed
+            ):
+                try:
+                    env_snapshot = await self.environment_probe.get_snapshot()
+                except Exception as exc:
+                    logger.warning("Environment probe error: %s", exc)
+            canvas_summary = ""
+            if self.canvas_state:
+                canvas_summary = self.canvas_state.get_summary()
+            dynamic_system = self.prompt_builder.build(
+                intent_result=intent_result,
+                environment=env_snapshot,
+                canvas_summary=canvas_summary,
+            )
+
         try:
             for iteration in range(self.max_iterations):
                 if self._cancel_flags.get(session_id, False):
@@ -122,7 +163,7 @@ class AgentLoop:
                     messages = self.context_manager.prepare_messages(messages)
 
                 # Build system prompt with dynamic warnings
-                system = self.system_prompt
+                system = dynamic_system if dynamic_system is not None else self.system_prompt
                 loop_warning = self._check_tool_loop(recent_tools)
                 if loop_warning:
                     system += "\n\n" + loop_warning
