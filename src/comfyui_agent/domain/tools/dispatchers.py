@@ -241,19 +241,22 @@ class ManageDispatcher(_GroupDispatcher):
             name="comfyui_manage",
             description=(
                 "Manage ComfyUI resources: upload images, download models, install custom "
-                "nodes, and manage GPU memory.\n\n"
+                "nodes, and manage GPU memory. When ComfyUI Manager is installed, "
+                "download_model and install_custom_node delegate to Manager for reliable "
+                "large-file downloads and unified package management.\n\n"
                 "Actions:\n"
                 "- upload_image(url?, filepath?, filename?) — Upload an image to ComfyUI's "
                 "input directory for use in img2img, ControlNet, or other image-input workflows. "
                 "Provide either a URL (downloaded automatically) or a local filepath. "
                 "Returns the filename to reference in workflow inputs.\n"
                 "- download_model(url, folder, filename?) — Download a model file from URL "
-                "(HuggingFace, Civitai, or direct link) into a model folder. Use "
-                "get_folder_paths() first to see available folders and their disk paths.\n"
-                "- install_custom_node(git_url) — Clone a custom node repository into "
-                "ComfyUI's custom_nodes/ directory and install its dependencies. "
-                "Requires ComfyUI restart to take effect. After restart, call "
-                "refresh_index to update the node search index.\n"
+                "(HuggingFace, Civitai, or direct link) into a model folder. When Manager "
+                "is available, delegates to Manager for background download with aria2 support. "
+                "Use get_folder_paths() first to see available folders.\n"
+                "- install_custom_node(node_id, version?) — Install a custom node. Accepts "
+                "CNR package IDs (e.g., 'comfyui-impact-pack') when Manager is available, "
+                "or git URLs as fallback. Use comfy_registry to find package IDs. "
+                "Requires ComfyUI restart to take effect.\n"
                 "- free_memory(unload_models?, free_memory?) — Release GPU VRAM by "
                 "unloading models and clearing caches. Useful before loading large models "
                 "or when VRAM is running low.\n"
@@ -275,7 +278,7 @@ class ManageDispatcher(_GroupDispatcher):
                     },
                     "params": {
                         "type": "object",
-                        "description": "Action-specific parameters: upload_image({url?, filepath?, filename?}), download_model({url, folder, filename?}), install_custom_node({git_url}), free_memory({unload_models?, free_memory?}), get_folder_paths(no params), refresh_index(no params)",
+                        "description": "Action-specific parameters: upload_image({url?, filepath?, filename?}), download_model({url, folder, filename?}), install_custom_node({node_id, version?}), free_memory({unload_models?, free_memory?}), get_folder_paths(no params), refresh_index(no params)",
                     },
                 },
                 "required": ["action"],

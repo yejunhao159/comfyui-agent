@@ -31,6 +31,38 @@ class ComfyUIPort(Protocol):
     async def close(self) -> None: ...
     async def connect_ws(self) -> None: ...
 
+    # --- ComfyUI Manager integration ---
+    async def manager_available(self) -> bool:
+        """Check if ComfyUI Manager extension is installed and reachable."""
+        ...
+
+    async def manager_install_model(
+        self, name: str, url: str, filename: str, save_path: str, model_type: str = "checkpoint",
+    ) -> dict[str, Any]:
+        """Install a model via ComfyUI Manager's /model/install endpoint.
+
+        Manager handles the download internally (supports aria2 for large files).
+        This is a blocking call — returns only after download completes.
+        """
+        ...
+
+    async def manager_install_node(
+        self, node_id: str, version: str = "latest", channel: str = "default", mode: str = "default",
+    ) -> dict[str, Any]:
+        """Install a custom node via ComfyUI Manager's /customnode/install endpoint.
+
+        Uses Manager's unified install system (CNR packages, nightly, git URLs).
+        """
+        ...
+
+    async def manager_get_node_list(self, mode: str = "default") -> dict[str, Any]:
+        """Get the list of available custom nodes from Manager."""
+        ...
+
+    async def manager_reboot(self) -> None:
+        """Request ComfyUI restart via Manager's /manager/reboot endpoint."""
+        ...
+
 
 class LLMPort(Protocol):
     """Interface for LLM communication."""

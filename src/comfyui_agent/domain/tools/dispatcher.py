@@ -52,7 +52,7 @@ Execute ComfyUI operations.
 ## Management
 - upload_image(url?, filepath?, filename?) — Upload image for img2img/ControlNet.
 - download_model(url, folder, filename?) — Download model from URL.
-- install_custom_node(git_url) — Install custom node from git repo.
+- install_custom_node(node_id, version?) — Install custom node (CNR ID or git URL).
 - free_memory(unload_models?, free_memory?) — Free GPU VRAM and RAM.
 - get_folder_paths() — Show where models and outputs are stored.
 - refresh_index() — Rebuild node index after installing custom nodes."""

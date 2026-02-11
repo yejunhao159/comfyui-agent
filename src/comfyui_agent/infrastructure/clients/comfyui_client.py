@@ -169,6 +169,109 @@ class ComfyUIClient:
         logger.info("Memory freed (unload=%s, free=%s)", unload_models, free_memory)
 
     # ============================================================
+    # ComfyUI Manager API Methods
+    # ============================================================
+
+    async def manager_available(self) -> bool:
+        """Check if ComfyUI Manager is installed by probing its endpoint."""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/manager/show_menu"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                return resp.status in (200, 201)
+        except Exception:
+            return False
+
+    async def manager_install_model(
+        self,
+        name: str,
+        url: str,
+        filename: str,
+        save_path: str,
+        model_type: str = "checkpoint",
+    ) -> dict[str, Any]:
+        """Install a model via Manager's /model/install endpoint.
+
+        Manager handles the download internally with its own download system
+        (supports aria2 for large files). This call blocks until download completes.
+        """
+        session = await self._get_session()
+        data = {
+            "name": name,
+            "url": url,
+            "filename": filename,
+            "type": model_type,
+            "save_path": save_path,
+        }
+        # Manager downloads can take a very long time for large models.
+        # Use a generous timeout (30 minutes).
+        long_timeout = aiohttp.ClientTimeout(total=1800)
+        api_url = f"{self.base_url}/model/install"
+        async with session.post(api_url, json=data, timeout=long_timeout) as resp:
+            if resp.status == 403:
+                raise PermissionError(
+                    "Manager security level too high. "
+                    "Set security_level to 'middle' or lower in Manager config."
+                )
+            resp.raise_for_status()
+            content_type = resp.content_type or ""
+            if "json" in content_type:
+                return await resp.json()
+            return {"status": "ok"}
+
+    async def manager_install_node(
+        self,
+        node_id: str,
+        version: str = "latest",
+        channel: str = "default",
+        mode: str = "default",
+    ) -> dict[str, Any]:
+        """Install a custom node via Manager's /customnode/install endpoint."""
+        session = await self._get_session()
+        data = {
+            "id": node_id,
+            "version": version,
+            "selected_version": version,
+            "channel": channel,
+            "mode": mode,
+        }
+        long_timeout = aiohttp.ClientTimeout(total=600)
+        api_url = f"{self.base_url}/customnode/install"
+        async with session.post(api_url, json=data, timeout=long_timeout) as resp:
+            if resp.status == 403:
+                raise PermissionError(
+                    "Manager security level too high for node installation."
+                )
+            if resp.status == 400:
+                text = await resp.text()
+                raise RuntimeError(f"Manager install failed: {text}")
+            resp.raise_for_status()
+            return {"status": "ok", "message": await resp.text()}
+
+    async def manager_get_node_list(self, mode: str = "default") -> dict[str, Any]:
+        """Get available custom nodes from Manager."""
+        session = await self._get_session()
+        api_url = f"{self.base_url}/customnode/getlist"
+        params = {"mode": mode, "skip_update": "true"}
+        long_timeout = aiohttp.ClientTimeout(total=30)
+        async with session.get(api_url, params=params, timeout=long_timeout) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def manager_reboot(self) -> None:
+        """Request ComfyUI restart via Manager."""
+        session = await self._get_session()
+        api_url = f"{self.base_url}/manager/reboot"
+        try:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 403:
+                    raise PermissionError("Manager security level too high for reboot.")
+        except aiohttp.ClientConnectionError:
+            # Expected — ComfyUI exits immediately on reboot
+            pass
+        logger.info("ComfyUI reboot requested via Manager")
+
+    # ============================================================
     # WebSocket Methods
     # ============================================================
 

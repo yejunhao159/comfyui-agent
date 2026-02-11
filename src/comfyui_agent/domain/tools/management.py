@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -107,7 +108,12 @@ class UploadImageTool(Tool):
 
 
 class DownloadModelTool(Tool):
-    """Download a model file from URL to ComfyUI's model directory."""
+    """Download a model file — delegates to ComfyUI Manager when available.
+
+    Manager handles downloads internally with its own download system
+    (supports aria2 for large files), avoiding the 60s tool timeout issue.
+    Falls back to direct download when Manager is not installed.
+    """
 
     def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
@@ -116,7 +122,8 @@ class DownloadModelTool(Tool):
         return ToolInfo(
             name="comfyui_download_model",
             description=(
-                "Download a model file from a URL to ComfyUI's model directory. "
+                "Download a model file to ComfyUI's model directory. "
+                "Delegates to ComfyUI Manager for reliable large-file downloads when available. "
                 "Supports HuggingFace, Civitai, and direct download URLs. "
                 "Use comfyui_get_folder_paths first to see available model folders."
             ),
@@ -124,8 +131,11 @@ class DownloadModelTool(Tool):
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "Download URL for the model file"},
-                    "folder": {"type": "string", "description": "Target model folder (e.g., 'checkpoints', 'loras')"},
-                    "filename": {"type": "string", "description": "Filename to save as (optional)"},
+                    "folder": {
+                        "type": "string",
+                        "description": "Target model folder (e.g., 'checkpoints', 'loras', 'controlnet', 'vae')",
+                    },
+                    "filename": {"type": "string", "description": "Filename to save as (optional, auto-detected from URL)"},
                 },
                 "required": ["url", "folder"],
             },
@@ -139,43 +149,107 @@ class DownloadModelTool(Tool):
         if not url or not folder:
             return ToolResult.error("'url' and 'folder' are required")
 
+        if not filename:
+            filename = _extract_filename_from_url(url)
+        if not filename:
+            return ToolResult.error(
+                "Could not determine filename from URL. Please provide 'filename' parameter."
+            )
+
         try:
-            folder_paths = await self.client.get_folder_paths()
-            paths = folder_paths.get(folder)
-            if not paths or not isinstance(paths, list) or len(paths) == 0:
-                available = [k for k in folder_paths if isinstance(folder_paths[k], list)]
-                return ToolResult.error(f"Unknown folder '{folder}'. Available: {', '.join(sorted(available))}")
-
-            target_dir = Path(paths[0][0]) if isinstance(paths[0], list) else Path(paths[0])
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-            if not filename:
-                filename = _extract_filename_from_url(url)
-            if not filename:
-                return ToolResult.error("Could not determine filename from URL. Please provide 'filename' parameter.")
-
-            target_path = target_dir / filename
-            if target_path.exists():
-                size_mb = target_path.stat().st_size / (1024 * 1024)
-                return ToolResult.success(f"Model already exists: {target_path} ({size_mb:.1f} MB)")
-
-            downloaded = 0
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, allow_redirects=True) as resp:
-                    resp.raise_for_status()
-                    with open(target_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(1024 * 1024):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-
-            size_mb = downloaded / (1024 * 1024)
-            return ToolResult.success(f"Model downloaded: {filename} ({size_mb:.1f} MB)\nSaved to: {target_path}\nFolder: {folder}")
+            # Try Manager first — it handles large downloads reliably
+            if await self.client.manager_available():
+                return await self._download_via_manager(url, folder, filename)
+            # Fallback to direct download
+            return await self._download_direct(url, folder, filename)
         except Exception as e:
             return ToolResult.error(f"Failed to download model: {e}")
 
+    async def _download_via_manager(
+        self, url: str, folder: str, filename: str,
+    ) -> ToolResult:
+        """Download via ComfyUI Manager's /model/install endpoint.
+
+        Manager downloads are synchronous (blocks until complete), so we fire
+        the request in a background task and return immediately. The user can
+        check download progress via system_stats or list_models.
+        """
+        save_path = folder
+        name = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        logger = logging.getLogger(__name__)
+
+        async def _bg_download() -> None:
+            try:
+                await self.client.manager_install_model(
+                    name=name,
+                    url=url,
+                    filename=filename,
+                    save_path=save_path,
+                    model_type=folder,
+                )
+                logger.info("Manager model download completed: %s", filename)
+            except Exception as e:
+                logger.warning("Manager model download failed: %s", e)
+
+        # Fire and forget — Manager handles the download in its own process.
+        # Hold reference to prevent GC.
+        task = asyncio.create_task(_bg_download())
+        task.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+
+        return ToolResult.success(
+            f"Model download delegated to ComfyUI Manager: {filename}\n"
+            f"Manager is downloading in the background (supports aria2 for large files).\n"
+            f"Folder: {folder}\n"
+            f"The download may take several minutes for large models. "
+            f"Use list_models(folder='{folder}') to check when it appears."
+        )
+
+    async def _download_direct(
+        self, url: str, folder: str, filename: str,
+    ) -> ToolResult:
+        """Fallback: download directly through the agent process."""
+        folder_paths = await self.client.get_folder_paths()
+        paths = folder_paths.get(folder)
+        if not paths or not isinstance(paths, list) or len(paths) == 0:
+            available = [k for k in folder_paths if isinstance(folder_paths[k], list)]
+            return ToolResult.error(
+                f"Unknown folder '{folder}'. Available: {', '.join(sorted(available))}"
+            )
+
+        target_dir = Path(paths[0][0]) if isinstance(paths[0], list) else Path(paths[0])
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        target_path = target_dir / filename
+        if target_path.exists():
+            size_mb = target_path.stat().st_size / (1024 * 1024)
+            return ToolResult.success(
+                f"Model already exists: {target_path} ({size_mb:.1f} MB)"
+            )
+
+        downloaded = 0
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, allow_redirects=True) as resp:
+                resp.raise_for_status()
+                with open(target_path, "wb") as f:
+                    async for chunk in resp.content.iter_chunked(1024 * 1024):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+        size_mb = downloaded / (1024 * 1024)
+        return ToolResult.success(
+            f"Model downloaded: {filename} ({size_mb:.1f} MB)\n"
+            f"Saved to: {target_path}\nFolder: {folder}"
+        )
+
 
 class InstallCustomNodeTool(Tool):
-    """Install a ComfyUI custom node from a git repository."""
+    """Install a ComfyUI custom node — delegates to Manager when available.
+
+    Manager uses its unified install system (CNR packages, nightly, git URLs)
+    with proper dependency resolution. Falls back to git clone when Manager
+    is not installed.
+    """
 
     def __init__(self, client: ComfyUIPort) -> None:
         self.client = client
@@ -184,72 +258,116 @@ class InstallCustomNodeTool(Tool):
         return ToolInfo(
             name="comfyui_install_custom_node",
             description=(
-                "Install a ComfyUI custom node from a git repository URL. "
-                "Clones the repo into ComfyUI's custom_nodes/ directory and installs dependencies."
+                "Install a ComfyUI custom node. When ComfyUI Manager is available, "
+                "uses its unified install system (supports CNR package IDs like "
+                "'comfyui-impact-pack' or git URLs). Without Manager, clones from "
+                "a git repository URL. Requires ComfyUI restart to take effect."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "git_url": {"type": "string", "description": "Git repository URL"},
+                    "node_id": {
+                        "type": "string",
+                        "description": (
+                            "CNR package ID (e.g., 'comfyui-impact-pack') or git URL. "
+                            "Use comfy_registry tool to find package IDs."
+                        ),
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Version to install: 'latest' (default), 'nightly', or specific version",
+                    },
                 },
-                "required": ["git_url"],
+                "required": ["node_id"],
             },
         )
 
     async def run(self, params: dict[str, Any]) -> ToolResult:
-        git_url = params.get("git_url", "")
-        if not git_url:
-            return ToolResult.error("'git_url' is required")
+        node_id = params.get("node_id", "") or params.get("git_url", "")
+        version = params.get("version", "latest")
+
+        if not node_id:
+            return ToolResult.error("'node_id' is required (CNR package ID or git URL)")
+
+        try:
+            # Try Manager first
+            if await self.client.manager_available():
+                return await self._install_via_manager(node_id, version)
+            # Fallback to git clone (only works with git URLs)
+            if re.match(r"https?://", node_id):
+                return await self._install_via_git(node_id)
+            return ToolResult.error(
+                f"ComfyUI Manager is not available. "
+                f"Cannot install CNR package '{node_id}' without Manager. "
+                f"Please provide a git URL instead, or install ComfyUI Manager first."
+            )
+        except Exception as e:
+            return ToolResult.error(f"Failed to install custom node: {e}")
+
+    async def _install_via_manager(self, node_id: str, version: str) -> ToolResult:
+        """Install via ComfyUI Manager's unified install system."""
+        result = await self.client.manager_install_node(
+            node_id=node_id,
+            version=version,
+        )
+        msg = result.get("message", "Installation success.")
+        return ToolResult.success(
+            f"Custom node '{node_id}' installed via ComfyUI Manager.\n"
+            f"{msg}\n"
+            f"Note: Restart ComfyUI for the new nodes to be available."
+        )
+
+    async def _install_via_git(self, git_url: str) -> ToolResult:
+        """Fallback: install via git clone."""
         if not re.match(r"https?://", git_url):
             return ToolResult.error("git_url must start with http:// or https://")
 
-        try:
-            folder_paths = await self.client.get_folder_paths()
-            custom_nodes_paths = folder_paths.get("custom_nodes")
-            if not custom_nodes_paths:
-                return ToolResult.error("Could not determine custom_nodes directory.")
-            custom_nodes_dir = Path(
-                custom_nodes_paths[0][0] if isinstance(custom_nodes_paths[0], list) else custom_nodes_paths[0]
+        folder_paths = await self.client.get_folder_paths()
+        custom_nodes_paths = folder_paths.get("custom_nodes")
+        if not custom_nodes_paths:
+            return ToolResult.error("Could not determine custom_nodes directory.")
+        custom_nodes_dir = Path(
+            custom_nodes_paths[0][0]
+            if isinstance(custom_nodes_paths[0], list)
+            else custom_nodes_paths[0]
+        )
+
+        repo_name = git_url.rstrip("/").split("/")[-1]
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+
+        target_dir = custom_nodes_dir / repo_name
+        if target_dir.exists():
+            return ToolResult.success(
+                f"Custom node '{repo_name}' already installed at {target_dir}"
             )
 
-            repo_name = git_url.rstrip("/").split("/")[-1]
-            if repo_name.endswith(".git"):
-                repo_name = repo_name[:-4]
+        proc = await asyncio.create_subprocess_exec(
+            "git", "clone", git_url, str(target_dir),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0:
+            return ToolResult.error(f"git clone failed: {stderr.decode().strip()}")
 
-            target_dir = custom_nodes_dir / repo_name
-            if target_dir.exists():
-                return ToolResult.success(f"Custom node '{repo_name}' already installed at {target_dir}")
-
+        req_file = target_dir / "requirements.txt"
+        pip_msg = ""
+        if req_file.exists():
+            python_path = _find_comfyui_python(custom_nodes_dir)
             proc = await asyncio.create_subprocess_exec(
-                "git", "clone", git_url, str(target_dir),
+                python_path, "-m", "pip", "install", "-r", str(req_file),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-            if proc.returncode != 0:
-                return ToolResult.error(f"git clone failed: {stderr.decode().strip()}")
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode == 0:
+                pip_msg = "\nDependencies installed from requirements.txt"
+            else:
+                pip_msg = f"\nWarning: pip install failed: {stderr.decode()[:200]}"
 
-            req_file = target_dir / "requirements.txt"
-            pip_msg = ""
-            if req_file.exists():
-                python_path = _find_comfyui_python(custom_nodes_dir)
-                proc = await asyncio.create_subprocess_exec(
-                    python_path, "-m", "pip", "install", "-r", str(req_file),
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-                if proc.returncode == 0:
-                    pip_msg = "\nDependencies installed from requirements.txt"
-                else:
-                    pip_msg = f"\nWarning: pip install failed: {stderr.decode()[:200]}"
-
-            return ToolResult.success(
-                f"Custom node '{repo_name}' installed at {target_dir}{pip_msg}\n"
-                f"Note: Restart ComfyUI for the new nodes to be available."
-            )
-        except asyncio.TimeoutError:
-            return ToolResult.error("Installation timed out")
-        except Exception as e:
-            return ToolResult.error(f"Failed to install custom node: {e}")
+        return ToolResult.success(
+            f"Custom node '{repo_name}' installed at {target_dir}{pip_msg}\n"
+            f"Note: Restart ComfyUI for the new nodes to be available."
+        )
 
 
 class FreeMemoryTool(Tool):
