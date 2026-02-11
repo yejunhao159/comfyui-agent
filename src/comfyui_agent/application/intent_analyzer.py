@@ -22,12 +22,13 @@ _ALL_SECTION_NAMES = [c.value for c in SectionCategory if c != SectionCategory.I
 
 _ANALYSIS_PROMPT = """\
 Classify this ComfyUI user message. Respond in JSON only.
-{{"topics": ["tag1", "tag2"], "env_needed": true/false, "sections": ["section_name", ...]}}
+{{"topics": ["tag1", "tag2"], "env_needed": true/false, "sections": ["section_name", ...], "knowledge_tags": ["tag1", "tag2"]}}
 
 Rules:
 - topics: 2-3 keyword tags describing the intent
 - env_needed: true if message asks about GPU, models, system status, or needs model names for workflow building
-- sections: which context sections to include. Options: environment, workflow_strategy, tool_reference, rules, error_handling
+- sections: which context sections to include. Options: environment, workflow_strategy, rules
+- knowledge_tags: 1-3 tags matching relevant knowledge domains (e.g., "comfyui", "architecture", "workflow", "python", "async"). Empty list if no specific knowledge needed.
 
 Message: {user_input}"""
 
@@ -70,6 +71,7 @@ class IntentAnalyzer:
                 topics=data.get("topics", [])[:3],
                 environment_needed=bool(data.get("env_needed", True)),
                 suggested_sections=data.get("sections", _ALL_SECTION_NAMES),
+                knowledge_tags=data.get("knowledge_tags", [])[:3],
             )
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             logger.warning("Failed to parse intent response: %s", exc)

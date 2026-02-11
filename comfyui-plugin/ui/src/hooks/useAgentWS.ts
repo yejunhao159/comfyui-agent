@@ -3,6 +3,7 @@ import type {
   ChatItem,
   ConnectionStatus,
   ContentBlock,
+  ExperienceNotice,
   RetryNotice,
   ServerEvent,
   SubAgentBlock,
@@ -319,6 +320,12 @@ export function useAgentWS(agentUrl: string) {
             },
           })
         );
+      } else if (et === "experience.synthesized") {
+        const notice: ExperienceNotice = {
+          name: (data.name as string) ?? "",
+          title: (data.title as string) ?? "经验升级",
+        };
+        appendItem({ kind: "experience", data: notice });
       }
     },
     [appendItem, updateStreamingText, pushToolBlock, updateTool, pushSubAgentBlock, updateLastAgent, pushRetryBlock]

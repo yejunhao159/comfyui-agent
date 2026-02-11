@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Protocol
 
+from comfyui_agent.domain.models.context import IdentityFeature
 from comfyui_agent.domain.models.events import Event, EventType
 
 
@@ -39,6 +40,7 @@ class LLMPort(Protocol):
         messages: list[dict[str, Any]],
         tools: list[Any] | None = None,
         system: str = "",
+        max_tokens: int | None = None,
     ) -> Any: ...
 
     async def close(self) -> None: ...
@@ -70,3 +72,50 @@ class EventBusPort(Protocol):
     def on_prefix(self, prefix: str, handler: EventHandler) -> Callable[[], None]: ...
     def on_all(self, handler: EventHandler) -> Callable[[], None]: ...
     async def emit(self, event: Event) -> None: ...
+    def emit_sync(self, event: Event) -> None: ...
+
+
+class IdentityPort(Protocol):
+    """Interface for role identity loading and experience persistence.
+
+    Abstracts the RoleX file system storage, allowing the application
+    layer to load identity features and save experiences without
+    knowing the storage details.
+    """
+
+    def load_identity(self, role_name: str) -> list[IdentityFeature]: ...
+    def save_experience(self, role_name: str, exp_name: str, gherkin_source: str) -> None: ...
+
+
+class WebPort(Protocol):
+    """Interface for web fetching and searching.
+
+    Abstracts HTTP fetching and web search API calls,
+    allowing tools to access the web without knowing
+    the underlying HTTP client or search provider.
+    """
+
+    async def fetch_url(self, url: str, timeout: int = 30) -> dict[str, Any]:
+        """Fetch content from a URL.
+
+        Returns dict with keys: content, content_type, status_code, url.
+        """
+        ...
+
+    async def search(self, query: str, max_results: int = 5) -> list[dict[str, Any]]:
+        """Search the web for a query.
+
+        Returns list of dicts with keys: title, url, snippet.
+        """
+        ...
+
+    async def search_registry(self, node_id: str) -> dict[str, Any] | None:
+        """Look up a custom node package on the Comfy Registry (api.comfy.org).
+
+        Returns node metadata dict or None if not found.
+        """
+        ...
+
+    async def close(self) -> None: ...
+
+

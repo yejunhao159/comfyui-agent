@@ -54,11 +54,16 @@ class SubAgentTool(Tool):
         return ToolInfo(
             name="delegate_task",
             description=(
-                "Delegate a research or exploration task to a sub-agent. "
-                "The sub-agent has read-only access to ComfyUI tools "
-                "(search_nodes, get_node_detail, get_connectable, list_models, system_stats). "
-                "Use this for complex investigations that require multiple tool calls, "
-                "so you can continue focusing on the main task."
+                "Delegate a research or exploration task to a sub-agent that runs "
+                "independently with read-only ComfyUI tools (search_nodes, get_node_detail, "
+                "get_connectable, list_models, system_stats).\n\n"
+                "Use cases:\n"
+                "- Investigate which nodes and connections are needed for a complex workflow\n"
+                "- Research available models and their compatibility\n"
+                "- Explore a node category in depth while you focus on the main task\n"
+                "- Gather information that requires multiple sequential tool calls\n\n"
+                "The sub-agent returns its findings as text. It cannot modify anything "
+                "or execute workflows."
             ),
             parameters={
                 "type": "object",

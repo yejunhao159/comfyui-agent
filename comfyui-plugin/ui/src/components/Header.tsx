@@ -5,9 +5,15 @@ interface Props {
   status: ConnectionStatus;
   onClear: () => void;
   onToggleSessions?: () => void;
+  onToggleSettings?: () => void;
 }
 
-export const Header: React.FC<Props> = ({ status, onClear, onToggleSessions }) => {
+export const Header: React.FC<Props> = ({
+  status,
+  onClear,
+  onToggleSessions,
+  onToggleSettings,
+}) => {
   const statusConfig: Record<
     ConnectionStatus,
     { color: string; label: string }
@@ -37,9 +43,20 @@ export const Header: React.FC<Props> = ({ status, onClear, onToggleSessions }) =
           {label}
         </span>
       </div>
-      <button className="cua-header-btn" onClick={onClear} title="新建会话">
-        +
-      </button>
+      <div className="cua-header-right">
+        {onToggleSettings && (
+          <button
+            className="cua-header-btn"
+            onClick={onToggleSettings}
+            title="设置"
+          >
+            ⚙
+          </button>
+        )}
+        <button className="cua-header-btn" onClick={onClear} title="新建会话">
+          +
+        </button>
+      </div>
     </div>
   );
 };

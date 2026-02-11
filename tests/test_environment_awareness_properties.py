@@ -463,6 +463,15 @@ _ALWAYS_INCLUDE_CATS = {
     SectionCategory.RULES,
 }
 
+# Categories always included (subject to token budget) after identity integration
+_ALWAYS_PRESENT_CATS = {
+    SectionCategory.IDENTITY,
+    SectionCategory.WORKFLOW_STRATEGY,
+    SectionCategory.RULES,
+    SectionCategory.KNOWLEDGE,
+    SectionCategory.EXPERIENCE,
+}
+
 
 @given(
     suggested=st.lists(
@@ -501,7 +510,7 @@ def test_prompt_conditional_filtering(suggested: list[str]) -> None:
     for name, sec in all_sections.items():
         marker = f"__SECTION_{name}__"
         should_include = (
-            sec.category in _ALWAYS_INCLUDE_CATS
+            sec.category in _ALWAYS_PRESENT_CATS
             or name in suggested
         )
         if should_include:

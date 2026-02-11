@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from comfyui_agent.domain.ports import ComfyUIPort
+from comfyui_agent.domain.ports import ComfyUIPort, WebPort
 from comfyui_agent.domain.tools.base import Tool
 from comfyui_agent.domain.tools.discovery import (
     GetConnectableTool,
@@ -70,11 +70,38 @@ def create_readonly_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[To
     ]
 
 
-def create_all_tools(client: ComfyUIPort, node_index: NodeIndex) -> list[Tool]:
-    """Create all ComfyUI tools as a single dispatcher.
+def create_all_tools(
+    client: ComfyUIPort,
+    node_index: NodeIndex,
+    web: WebPort | None = None,
+) -> list[Tool]:
+    """Create all tools as dispatchers + optional web tools.
 
-    Returns a list with one ComfyUIDispatcher that routes to all 15 operations.
+    Returns a list with DiscoveryDispatcher, ExecuteDispatcher,
+    MonitorDispatcher, ManageDispatcher, and optionally WebFetchTool
+    and WebSearchTool.
     """
-    from comfyui_agent.domain.tools.dispatcher import ComfyUIDispatcher
+    from comfyui_agent.domain.tools.dispatchers import (
+        DiscoveryDispatcher,
+        ExecuteDispatcher,
+        ManageDispatcher,
+        MonitorDispatcher,
+    )
 
-    return [ComfyUIDispatcher(client, node_index)]
+    tools: list[Tool] = [
+        DiscoveryDispatcher(client, node_index),
+        ExecuteDispatcher(client, node_index),
+        MonitorDispatcher(client, node_index),
+        ManageDispatcher(client, node_index),
+    ]
+
+    if web is not None:
+        from comfyui_agent.domain.tools.registry_search import RegistrySearchTool
+        from comfyui_agent.domain.tools.web_fetch import WebFetchTool
+        from comfyui_agent.domain.tools.web_search import WebSearchTool
+
+        tools.append(WebFetchTool(web))
+        tools.append(WebSearchTool(web))
+        tools.append(RegistrySearchTool(web))
+
+    return tools

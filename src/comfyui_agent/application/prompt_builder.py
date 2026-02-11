@@ -25,6 +25,11 @@ _ALWAYS_INCLUDE = {
     SectionCategory.RULES,
 }
 
+# Knowledge is always included but subject to token budget trimming
+_KNOWLEDGE_INCLUDE = {
+    SectionCategory.KNOWLEDGE,
+}
+
 # Ordered list for rendering
 _CATEGORY_ORDER = list(SectionCategory)
 
@@ -88,12 +93,31 @@ class PromptBuilder:
         # Filter by intent
         if intent_result:
             suggested = set(intent_result.suggested_sections)
+            knowledge_tags = [t.lower() for t in intent_result.knowledge_tags]
             sections = [
                 s for s in sections
                 if s.category in _ALWAYS_INCLUDE
+                or s.category in _KNOWLEDGE_INCLUDE
                 or s.name in suggested
                 or s.category.value in suggested
             ]
+            # Filter KNOWLEDGE sections by knowledge_tags when tags are present
+            if knowledge_tags:
+                sections = [
+                    s for s in sections
+                    if s.category != SectionCategory.KNOWLEDGE
+                    or any(tag in s.name.lower() for tag in knowledge_tags)
+                ]
+            # EXPERIENCE is always included (subject to token budget)
+            # Re-add any experience sections that were filtered out
+            all_experience = [
+                s for s in list(self._sections.values())
+                if s.category == SectionCategory.EXPERIENCE
+            ]
+            existing_names = {s.name for s in sections}
+            for exp in all_experience:
+                if exp.name not in existing_names:
+                    sections.append(exp)
             # If environment not needed, drop environment sections
             if not intent_result.environment_needed:
                 sections = [
@@ -142,21 +166,21 @@ class PromptBuilder:
         return kept
 
 
-def create_default_sections() -> list[ContextSection]:
-    """Create the default ContextSection set from the original static prompt.
 
-    Splits the monolithic prompt into structured sections matching
-    SectionCategory ordering.
+def create_default_sections() -> list[ContextSection]:
+    """Create the default ContextSection set for the system prompt.
+
+    Focuses on WHO the agent is and HOW it should behave.
+    Tool-specific WHAT/WHEN details live in each tool's info().description.
     """
     return [
         ContextSection(
             name="identity",
             category=SectionCategory.IDENTITY,
             content=(
-                "You are a ComfyUI assistant. You help users create, manage, "
-                "and debug ComfyUI workflows through natural language.\n\n"
-                'Use the `comfyui` tool with {"action": "<name>", "params": {...}} '
-                "format. See the tool description for available actions."
+                "You are deepractice 生图助手, a ComfyUI workflow assistant. "
+                "You help users create, manage, and debug ComfyUI image generation "
+                "workflows through natural language conversation."
             ),
             priority=0,
         ),
@@ -164,58 +188,53 @@ def create_default_sections() -> list[ContextSection]:
             name="workflow_strategy",
             category=SectionCategory.WORKFLOW_STRATEGY,
             content=(
-                "## Workflow Building Strategy\n\n"
-                "Think in LINKS first, then convert to JSON.\n\n"
-                "Step 1: Plan the node chain using link notation:\n"
+                "## Workflow Building — MANDATORY Steps\n\n"
+                "When building or modifying a workflow, you MUST follow these steps IN ORDER. "
+                "Do NOT skip steps or jump straight to writing JSON.\n\n"
+                "### Step 1: Research (for unfamiliar workflow types)\n"
+                "If the request involves advanced techniques (ControlNet, LoRA, Inpainting, "
+                "IP-Adapter, AnimateDiff, etc.), use web_search to find reference workflows first:\n"
+                "  web_search('comfyui workflow <technique>') → web_fetch(url) → study the design\n\n"
+                "### Step 2: Discover nodes\n"
+                "Call comfyui_discover → search_nodes to find the node types you need.\n"
+                "Never assume node class_type names — always verify they exist.\n\n"
+                "### Step 3: Get exact model filenames\n"
+                "Call comfyui_monitor → list_models(folder='checkpoints') to get real filenames.\n"
+                "NEVER guess model names. Use the exact string returned by list_models.\n"
+                "Also list_models for loras, vae, controlnet etc. if needed.\n\n"
+                "### Step 4: Inspect key nodes\n"
+                "Call comfyui_discover → get_node_detail for complex nodes (KSampler, "
+                "ControlNetApply, etc.) to learn their exact input names, types, and allowed values.\n\n"
+                "### Step 5: Plan with Link Notation\n"
+                "Write out the node chain as typed links BEFORE writing any JSON:\n"
                 "  CheckpointLoaderSimple_0 --MODEL--> KSampler_0.model\n"
                 "  CheckpointLoaderSimple_0 --CLIP--> CLIPTextEncode_0.clip\n"
-                "  CheckpointLoaderSimple_0 --CLIP--> CLIPTextEncode_1.clip\n"
                 "  CLIPTextEncode_0 --CONDITIONING--> KSampler_0.positive\n"
-                "  CLIPTextEncode_1 --CONDITIONING--> KSampler_0.negative\n"
                 "  EmptyLatentImage_0 --LATENT--> KSampler_0.latent_image\n"
                 "  KSampler_0 --LATENT--> VAEDecode_0.samples\n"
                 "  CheckpointLoaderSimple_0 --VAE--> VAEDecode_0.vae\n"
-                "  VAEDecode_0 --IMAGE--> SaveImage_0.images\n\n"
-                "Step 2: Convert to API JSON format:\n"
-                "  Each unique NodeType_N becomes a node entry with a string ID.\n"
-                "  Each link becomes an input reference: [source_node_id, output_index].\n\n"
-                "Use get_connectable(output_type) to check which nodes can produce "
-                "or consume a given type.\n\n"
-                "## Workflow Building Process\n\n"
-                '1. Search for relevant nodes: comfyui(action="search_nodes", '
-                'params={"query": "..."})\n'
-                "2. Check type compatibility: comfyui(action=\"get_connectable\", "
-                'params={"output_type": "MODEL"})\n'
-                "3. Get node details for KEY nodes only (checkpoint loader, sampler) "
-                "— skip simple nodes like CLIPTextEncode, EmptyLatentImage, "
-                "VAEDecode, SaveImage\n"
-                "4. Plan the link chain, then build workflow in API format\n"
-                '5. Validate: comfyui(action="validate_workflow", '
-                'params={"workflow": {...}})\n'
-                '6. Submit: comfyui(action="queue_prompt", '
-                'params={"workflow": {...}})\n'
-                "7. IMMEDIATELY give a final text response to the user "
-                "— do NOT call more tools after queue_prompt"
-            ),
-            priority=0,
-        ),
-        ContextSection(
-            name="tool_reference",
-            category=SectionCategory.TOOL_REFERENCE,
-            content=(
+                "  VAEDecode_0 --IMAGE--> SaveImage_0.images\n"
+                "Each link: source_node --TYPE--> target_node.input_name\n"
+                "This catches type mismatches before you write JSON.\n\n"
+                "### Step 6: Build workflow JSON\n"
+                "Convert the link plan to ComfyUI API format: {node_id: {class_type, inputs}}.\n"
+                "Node connections use [source_node_id_string, output_index_int] format.\n\n"
+                "### Step 7: Validate\n"
+                "Call comfyui_discover → validate_workflow. Fix errors and re-validate ONCE.\n\n"
+                "### Step 8: Submit\n"
+                "Call comfyui_execute → queue_prompt. After success, IMMEDIATELY respond to the "
+                "user with the prompt_id and what the workflow will produce. Do NOT call more tools.\n\n"
                 "## ComfyUI Workflow API Format\n\n"
-                "A workflow is a dict of node_id -> {class_type, inputs}.\n"
-                "Node connections use [source_node_id, output_index] format.\n\n"
                 "Example txt2img:\n"
                 "{\n"
                 '  "1": {"class_type": "CheckpointLoaderSimple", '
-                '"inputs": {"ckpt_name": "model.safetensors"}},\n'
+                '"inputs": {"ckpt_name": "v1-5-pruned-emaonly.safetensors"}},\n'
                 '  "2": {"class_type": "CLIPTextEncode", '
                 '"inputs": {"text": "a photo of a cat", "clip": ["1", 1]}},\n'
                 '  "3": {"class_type": "CLIPTextEncode", '
                 '"inputs": {"text": "bad quality", "clip": ["1", 1]}},\n'
                 '  "4": {"class_type": "EmptyLatentImage", '
-                '"inputs": {"width": 1024, "height": 1024, "batch_size": 1}},\n'
+                '"inputs": {"width": 512, "height": 512, "batch_size": 1}},\n'
                 '  "5": {"class_type": "KSampler", "inputs": '
                 '{"model": ["1", 0], "positive": ["2", 0], '
                 '"negative": ["3", 0], "latent_image": ["4", 0], '
@@ -227,20 +246,7 @@ def create_default_sections() -> list[ContextSection]:
                 '  "7": {"class_type": "SaveImage", '
                 '"inputs": {"images": ["6", 0], '
                 '"filename_prefix": "output"}}\n'
-                "}\n\n"
-                "## CRITICAL: When to Stop Calling Tools\n\n"
-                "After queue_prompt succeeds, you MUST immediately give a "
-                "final text response:\n"
-                "- Tell the user the workflow was submitted\n"
-                "- Mention the prompt_id so they can track it\n"
-                "- Describe what the workflow will produce\n"
-                "- Do NOT call any more tools after queue_prompt succeeds\n\n"
-                "Other stopping conditions:\n"
-                "- After answering a question with text, just respond\n"
-                "- If you're unsure what to do next, ask the user\n"
-                "- After 5 tool calls, summarize what you've done and respond\n\n"
-                "NEVER call tools endlessly. Your goal is to help the user, "
-                "not to keep calling tools."
+                "}"
             ),
             priority=0,
         ),
@@ -249,35 +255,25 @@ def create_default_sections() -> list[ContextSection]:
             category=SectionCategory.RULES,
             content=(
                 "## Rules\n\n"
-                "- Always search_nodes and get_node_detail before using a "
-                "node type you're unsure about\n"
-                "- Always validate_workflow before queue_prompt\n"
-                "- Use the actual model names from list_models, not guessed names\n"
-                "- Node connections: [node_id_string, output_index_int]\n"
-                "- After install_custom_node, use refresh_index to update "
-                "the node index\n"
-                "- Be efficient: combine what you know, don't call "
-                "get_node_detail for every single node"
-            ),
-            priority=0,
-        ),
-        ContextSection(
-            name="error_handling",
-            category=SectionCategory.ERROR_HANDLING,
-            content=(
-                "## Error Handling\n\n"
-                "- If a tool call fails, analyze the error and try a "
-                "DIFFERENT approach — do NOT repeat the same call\n"
-                "- If validate_workflow fails, fix the specific error "
-                "mentioned, then re-validate ONCE\n"
-                "- If queue_prompt fails, explain the error to the user "
-                "and ask if they want to retry\n"
-                "- Never call the same tool more than 3 times in a row "
-                "— if stuck, explain the situation to the user\n"
-                "- When an execution error occurs, check get_history for "
-                "details before attempting fixes"
+                "### Workflow Building Checklist\n"
+                "Before calling queue_prompt, verify:\n"
+                "- [ ] All model filenames come from list_models (never guessed)\n"
+                "- [ ] Key nodes inspected via get_node_detail (KSampler, ControlNet, etc.)\n"
+                "- [ ] Link Notation plan written out showing all connections\n"
+                "- [ ] All connections use [node_id_string, output_index_int] format\n"
+                "- [ ] validate_workflow passed\n\n"
+                "### General Rules\n"
+                "- Be efficient: combine what you know, don't over-call tools\n"
+                "- After 5+ tool calls without resolution, summarize progress "
+                "and ask the user for guidance\n"
+                "- If a tool call fails, try a DIFFERENT approach — "
+                "do NOT repeat the same call\n"
+                "- Never call the same tool more than 3 times in a row\n"
+                "- When stuck, explain the situation to the user\n"
+                "- After queue_prompt succeeds, respond immediately — no more tool calls"
             ),
             priority=0,
         ),
     ]
+
 

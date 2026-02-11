@@ -27,8 +27,13 @@ from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.domain.models.events import Event, EventType
 from comfyui_agent.domain.tools.factory import create_all_tools
 from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
+from comfyui_agent.infrastructure.clients.web_client import WebClient
 from comfyui_agent.infrastructure.config import AppConfig
 from comfyui_agent.infrastructure.event_bus import EventBus
+from comfyui_agent.infrastructure.identity.rolex_loader import (
+    RolexIdentityLoader,
+    features_to_sections,
+)
 from comfyui_agent.infrastructure.clients.llm_client import LLMClient
 from comfyui_agent.infrastructure.persistence.session_store import SessionStore
 
@@ -203,7 +208,52 @@ async def run_cli() -> None:
     from comfyui_agent.knowledge.node_index import NodeIndex
     node_index = NodeIndex()
 
-    tools = create_all_tools(comfyui, node_index)
+    web_client = WebClient(
+        tavily_api_key=config.web.resolve_tavily_key(),
+        timeout=config.web.timeout,
+    )
+    tools = create_all_tools(comfyui, node_index, web=web_client)
+
+    # Build prompt with identity
+    from comfyui_agent.application.prompt_builder import PromptBuilder, create_default_sections
+    from comfyui_agent.application.intent_analyzer import IntentAnalyzer
+    from comfyui_agent.application.environment_probe import EnvironmentProbe
+    from comfyui_agent.application.canvas_state import CanvasState
+
+    prompt_builder = PromptBuilder()
+    for section in create_default_sections():
+        prompt_builder.register_section(section)
+
+    # Load RoleX identity if configured
+    identity_loader: RolexIdentityLoader | None = None
+    if config.identity.role_name:
+        try:
+            identity_loader = RolexIdentityLoader(rolex_dir=config.identity.rolex_dir)
+            features = identity_loader.load_identity(config.identity.role_name)
+            if features:
+                identity_sections = features_to_sections(
+                    features, role_name=config.identity.role_name,
+                )
+                for section in identity_sections:
+                    prompt_builder.register_section(section)
+        except Exception as exc:
+            console.print(f"  [yellow]⚠[/yellow] Identity load failed: {exc}")
+            identity_loader = None
+
+    # Wire ExperienceSynthesizer for self-reflection
+    if identity_loader and config.identity.role_name:
+        from comfyui_agent.application.experience_synthesizer import ExperienceSynthesizer
+        _experience_synthesizer = ExperienceSynthesizer(
+            identity_port=identity_loader,
+            event_bus=event_bus,
+            role_name=config.identity.role_name,
+            llm=llm,
+            prompt_builder=prompt_builder,
+        )
+
+    intent_analyzer = IntentAnalyzer(llm=llm)
+    environment_probe = EnvironmentProbe(client=comfyui, node_index=node_index)
+    canvas_state = CanvasState(event_bus=event_bus)
 
     agent = AgentLoop(
         llm=llm,
@@ -211,6 +261,10 @@ async def run_cli() -> None:
         session_store=session_store,
         event_bus=event_bus,
         max_iterations=config.agent.max_iterations,
+        prompt_builder=prompt_builder,
+        intent_analyzer=intent_analyzer,
+        environment_probe=environment_probe,
+        canvas_state=canvas_state,
     )
 
     # Health check
@@ -259,6 +313,7 @@ async def run_cli() -> None:
         console.print("\n[dim]Goodbye![/dim]")
         await comfyui.close()
         await llm.close()
+        await web_client.close()
         await session_store.close()
 
 

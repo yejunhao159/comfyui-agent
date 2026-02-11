@@ -22,6 +22,11 @@ export interface RetryNotice {
   error: string;
 }
 
+export interface ExperienceNotice {
+  name: string;
+  title: string;
+}
+
 /** Ordered content block — text, tool call, sub-agent, or retry notice. */
 export type ContentBlock =
   | { kind: "text"; text: string }
@@ -47,7 +52,8 @@ export interface TurnStats {
 
 export type ChatItem =
   | { kind: "message"; data: AgentMessage }
-  | { kind: "stats"; data: TurnStats };
+  | { kind: "stats"; data: TurnStats }
+  | { kind: "experience"; data: ExperienceNotice };
 
 /** WebSocket message from the server. */
 export interface ServerEvent {

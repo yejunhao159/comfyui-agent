@@ -24,3 +24,7 @@ logging:
   level: "INFO"
   format: "console"
   log_dir: "data/logs"
+
+identity:
+  rolex_dir: "~/.rolex"
+  role_name: "kael"

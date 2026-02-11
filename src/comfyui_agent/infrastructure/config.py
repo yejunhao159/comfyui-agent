@@ -51,12 +51,35 @@ class LoggingConfig(BaseModel):
     log_dir: str = "data/logs"
 
 
+class IdentityConfig(BaseModel):
+    """RoleX identity configuration."""
+
+    rolex_dir: str = "~/.rolex"
+    role_name: str = ""  # Empty = skip identity loading
+
+
+class WebConfig(BaseModel):
+    """Web search and fetch configuration."""
+
+    tavily_api_key: str = ""  # Empty = use DuckDuckGo fallback
+    timeout: int = 30
+
+    def resolve_tavily_key(self) -> str:
+        if self.tavily_api_key:
+            return self.tavily_api_key
+        return os.environ.get("TAVILY_API_KEY", "")
+
+
+
+
 class AppConfig(BaseSettings):
     comfyui: ComfyUIConfig = ComfyUIConfig()
     llm: LLMConfig = LLMConfig()
     agent: AgentConfig = AgentConfig()
     server: ServerConfig = ServerConfig()
     logging: LoggingConfig = LoggingConfig()
+    web: WebConfig = WebConfig()
+    identity: IdentityConfig = IdentityConfig()
 
     @classmethod
     def from_yaml(cls, path: str | Path = "config.yaml") -> AppConfig:

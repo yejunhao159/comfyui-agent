@@ -14,11 +14,22 @@ class SectionCategory(str, Enum):
     """Ordered categories for system prompt sections."""
 
     IDENTITY = "identity"
+    KNOWLEDGE = "knowledge"
+    EXPERIENCE = "experience"
     ENVIRONMENT = "environment"
     WORKFLOW_STRATEGY = "workflow_strategy"
     TOOL_REFERENCE = "tool_reference"
     RULES = "rules"
     ERROR_HANDLING = "error_handling"
+
+
+class IdentityType(str, Enum):
+    """Types of RoleX identity features."""
+
+    PERSONA = "persona"
+    KNOWLEDGE = "knowledge"
+    EXPERIENCE = "experience"
+    VOICE = "voice"
 
 
 @dataclass
@@ -74,6 +85,7 @@ class IntentResult:
     topics: list[str] = field(default_factory=list)
     environment_needed: bool = True
     suggested_sections: list[str] = field(default_factory=list)
+    knowledge_tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -85,3 +97,17 @@ class ContextSection:
     content: str
     priority: int = 0
     token_estimate: int = 0
+
+
+@dataclass
+class IdentityFeature:
+    """A parsed RoleX identity feature file.
+
+    Represents one .identity.feature file from the RoleX storage.
+    The content field holds the original Gherkin text.
+    """
+
+    type: IdentityType
+    name: str
+    content: str
+    source_file: str = ""

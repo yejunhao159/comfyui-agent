@@ -25,7 +25,11 @@ class NodeIndex:
     def __init__(self) -> None:
         self._nodes: dict[str, dict[str, Any]] = {}  # class_name → raw info
         self._by_category: dict[str, list[str]] = {}  # category → [class_names]
-        self._search_corpus: dict[str, str] = {}  # class_name → searchable text
+        self._search_corpus: dict[str, str] = {}  # class_name → searchable text (legacy)
+        # Structured search fields for weighted scoring
+        self._search_fields: dict[str, _SearchFields] = {}
+        # Inverted index: token → set of class_names (for O(k) lookup)
+        self._inverted_index: dict[str, set[str]] = {}
         # Type compatibility indexes
         # type → [(class_name, output_index, output_name), ...]
         self._type_producers: dict[str, list[tuple[str, int, str]]] = {}
@@ -57,19 +61,37 @@ class NodeIndex:
         self._nodes = all_info
         self._by_category.clear()
         self._search_corpus.clear()
+        self._search_fields.clear()
+        self._inverted_index.clear()
         self._type_producers.clear()
         self._type_consumers.clear()
 
         for class_name, info in all_info.items():
             # Index by category
-            category = info.get("category", "uncategorized")
+            category = info.get("category") or "uncategorized"
             self._by_category.setdefault(category, []).append(class_name)
 
-            # Build search corpus: name + display_name + category + description
-            display = info.get("display_name", class_name)
-            desc = info.get("description", "")
+            # Build structured search fields
+            # Use `or` instead of default arg — key may exist with None value
+            display = info.get("display_name") or class_name
+            desc = info.get("description") or ""
+            fields = _SearchFields(
+                class_name=class_name.lower(),
+                display_name=display.lower(),
+                category=category.lower(),
+                description=desc.lower(),
+            )
+            self._search_fields[class_name] = fields
+
+            # Legacy corpus (kept for backward compat with test fixtures)
             corpus = f"{class_name} {display} {category} {desc}".lower()
             self._search_corpus[class_name] = corpus
+
+            # Build inverted index from all fields
+            tokens = set(_tokenize(class_name) + _tokenize(display)
+                         + _tokenize(category) + _tokenize(desc))
+            for token in tokens:
+                self._inverted_index.setdefault(token, set()).add(class_name)
 
             # Build type producer index from outputs
             self._index_outputs(class_name, info)
@@ -117,26 +139,64 @@ class NodeIndex:
         lines = [f"Nodes in [{matched}] ({len(nodes)}):"]
         for name in sorted(nodes):
             info = self._nodes[name]
-            display = info.get("display_name", name)
+            display = info.get("display_name") or name
             lines.append(f"  - {name} ({display})")
         return "\n".join(lines)
 
     def search(self, query: str, limit: int = 20) -> str:
-        """Search nodes by keyword. Matches against name, category, description."""
+        """Search nodes by keyword with weighted scoring.
+
+        Scoring weights (per term):
+          - class_name exact match: 10
+          - class_name contains term: 5
+          - display_name contains term: 4
+          - category contains term: 2
+          - description contains term: 1
+
+        Uses an inverted index for candidate selection (O(k) instead of O(n)),
+        then scores only the candidates.
+        """
         if not self._built:
             return "Node index not built yet."
         query_lower = query.lower()
         terms = query_lower.split()
 
-        scored: list[tuple[int, str]] = []
-        for class_name, corpus in self._search_corpus.items():
-            score = 0
+        # Gather candidates from inverted index
+        candidates: set[str] = set()
+        for term in terms:
+            # Exact token match
+            if term in self._inverted_index:
+                candidates.update(self._inverted_index[term])
+            # Prefix/substring match on tokens (for partial queries)
+            for token, names in self._inverted_index.items():
+                if term in token or token in term:
+                    candidates.update(names)
+
+        if not candidates:
+            return f"No nodes found matching '{query}'."
+
+        # Score candidates with weighted fields
+        scored: list[tuple[float, str]] = []
+        for class_name in candidates:
+            fields = self._search_fields.get(class_name)
+            if not fields:
+                continue
+            score = 0.0
             for term in terms:
-                if term in corpus:
-                    score += 1
-                # Bonus for exact class name match
-                if term in class_name.lower():
+                # class_name: highest weight
+                if term == fields.class_name:
+                    score += 10
+                elif term in fields.class_name:
+                    score += 5
+                # display_name
+                if term in fields.display_name:
+                    score += 4
+                # category
+                if term in fields.category:
                     score += 2
+                # description
+                if term in fields.description:
+                    score += 1
             if score > 0:
                 scored.append((score, class_name))
 
@@ -148,11 +208,12 @@ class NodeIndex:
 
         truncated = len(scored) > limit
         lines = [f"Search results for '{query}' ({len(scored)} matches, showing {len(results)}):"]
-        for score, name in results:
+        for _score, name in results:
             info = self._nodes[name]
-            display = info.get("display_name", name)
-            category = info.get("category", "")
-            lines.append(f"  - {name} [{category}] ({display})")
+            display = info.get("display_name") or name
+            category = info.get("category") or ""
+            io = self._io_summary(info)
+            lines.append(f"  - {name} [{category}] ({display}) — {io}")
         if truncated:
             lines.append(f"  ... {len(scored) - limit} more results. Refine your search.")
         return "\n".join(lines)
@@ -173,8 +234,8 @@ class NodeIndex:
             return f"Node '{class_name}' not found."
 
         lines = [f"Node: {class_name}"]
-        lines.append(f"  Display: {info.get('display_name', class_name)}")
-        lines.append(f"  Category: {info.get('category', 'unknown')}")
+        lines.append(f"  Display: {info.get('display_name') or class_name}")
+        lines.append(f"  Category: {info.get('category') or 'unknown'}")
         if info.get("description"):
             lines.append(f"  Description: {info['description']}")
 
@@ -301,13 +362,13 @@ class NodeIndex:
         if producers:
             lines.append(f"\n  Produced by ({len(producers)} nodes):")
             for class_name, idx, oname in producers[:limit]:
-                display = self._nodes[class_name].get("display_name", class_name)
+                display = self._nodes[class_name].get("display_name") or class_name
                 lines.append(f"    {class_name} [{display}] → output[{idx}] {oname}")
 
         if consumers:
             lines.append(f"\n  Consumed by ({len(consumers)} nodes):")
             for class_name, input_name in consumers[:limit]:
-                display = self._nodes[class_name].get("display_name", class_name)
+                display = self._nodes[class_name].get("display_name") or class_name
                 lines.append(f"    {class_name} [{display}] ← input.{input_name}")
 
         return "\n".join(lines)
@@ -358,3 +419,81 @@ class NodeIndex:
             return " ".join(parts)
 
         return str(param_spec)
+
+    @staticmethod
+    def _io_summary(info: dict[str, Any]) -> str:
+        """Build a compact I/O type summary for search results.
+
+        Example: "IN: model(MODEL), latent_image(LATENT) → OUT: LATENT"
+        Only shows typed connections (MODEL, CLIP, etc.), not scalar params.
+        """
+        # Collect typed inputs (uppercase type references)
+        typed_inputs: list[str] = []
+        input_info = info.get("input", {})
+        for section in ("required", "optional"):
+            for param_name, param_spec in input_info.get(section, {}).items():
+                if (
+                    isinstance(param_spec, (list, tuple))
+                    and len(param_spec) > 0
+                    and isinstance(param_spec[0], str)
+                    and param_spec[0].isupper()
+                ):
+                    typed_inputs.append(f"{param_name}({param_spec[0]})")
+
+        # Collect outputs
+        output_types = info.get("output", [])
+        out_str = ", ".join(str(t) for t in output_types) if output_types else "none"
+
+        if typed_inputs:
+            in_str = ", ".join(typed_inputs)
+            return f"IN: {in_str} → OUT: {out_str}"
+        return f"OUT: {out_str}"
+
+
+# ============================================================
+# Module-level helpers (not part of the class)
+# ============================================================
+
+# Regex for splitting identifiers: CamelCase, snake_case, slashes
+_SPLIT_RE = re.compile(r"[A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z][a-z]|\b)")
+
+
+class _SearchFields:
+    """Structured search fields for a single node, all lowercase."""
+
+    __slots__ = ("class_name", "display_name", "category", "description")
+
+    def __init__(
+        self,
+        class_name: str,
+        display_name: str,
+        category: str,
+        description: str,
+    ) -> None:
+        self.class_name = class_name
+        self.display_name = display_name
+        self.category = category
+        self.description = description
+
+
+def _tokenize(text: str) -> list[str]:
+    """Split text into searchable tokens.
+
+    Handles CamelCase (KSampler → k, sampler), snake_case,
+    slashes (image/upscaling → image, upscaling), and spaces.
+    Returns lowercase tokens with length >= 2.
+    """
+    # Split on non-alphanumeric boundaries
+    parts = re.split(r"[^a-zA-Z0-9]+", text)
+    tokens: list[str] = []
+    for part in parts:
+        lower = part.lower()
+        if len(lower) >= 2:
+            tokens.append(lower)
+        # Also split CamelCase sub-tokens
+        sub = _SPLIT_RE.findall(part)
+        for s in sub:
+            sl = s.lower()
+            if len(sl) >= 2 and sl != lower:
+                tokens.append(sl)
+    return tokens

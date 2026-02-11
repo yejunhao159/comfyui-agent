@@ -5,6 +5,7 @@ import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { InputArea } from "./components/InputArea";
 import { SessionList } from "./components/SessionList";
+import { SettingsPanel } from "./components/SettingsPanel";
 
 // Default agent URL — can be overridden via settings
 const DEFAULT_AGENT_WS = "ws://127.0.0.1:5200/api/chat/ws";
@@ -38,12 +39,12 @@ const App: React.FC<Props> = ({
   } = useSessionAPI(agentHttpUrl);
 
   const [showSessions, setShowSessions] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Load session list on mount and when connected
   useEffect(() => {
     if (status === "connected") {
       fetchSessions();
-      // If we have a saved session, load its messages
       if (sessionId && items.length === 0) {
         loadMessages(sessionId).then((loaded) => {
           if (loaded.length > 0) {
@@ -86,12 +87,17 @@ const App: React.FC<Props> = ({
     setShowSessions((v) => !v);
   }, [showSessions, fetchSessions]);
 
+  const handleToggleSettings = useCallback(() => {
+    setShowSettings((v) => !v);
+  }, []);
+
   return (
     <div className="cua-root">
       <Header
         status={status}
         onClear={handleNewSession}
         onToggleSessions={handleToggleSessions}
+        onToggleSettings={handleToggleSettings}
       />
       <MessageList items={items} isStreaming={isProcessing} />
       <InputArea
@@ -108,6 +114,12 @@ const App: React.FC<Props> = ({
           onNew={handleNewSession}
           onDelete={handleDeleteSession}
           onClose={() => setShowSessions(false)}
+        />
+      )}
+      {showSettings && (
+        <SettingsPanel
+          baseUrl={agentHttpUrl}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

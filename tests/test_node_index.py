@@ -141,8 +141,13 @@ def node_index() -> NodeIndex:
     idx._nodes = fake_info
     idx._by_category.clear()
     idx._search_corpus.clear()
+    idx._search_fields.clear()
+    idx._inverted_index.clear()
     idx._type_producers.clear()
     idx._type_consumers.clear()
+
+    from comfyui_agent.knowledge.node_index import _SearchFields, _tokenize
+
     for class_name, info in fake_info.items():
         category = info.get("category", "uncategorized")
         idx._by_category.setdefault(category, []).append(class_name)
@@ -150,6 +155,16 @@ def node_index() -> NodeIndex:
         desc = info.get("description", "")
         corpus = f"{class_name} {display} {category} {desc}".lower()
         idx._search_corpus[class_name] = corpus
+        idx._search_fields[class_name] = _SearchFields(
+            class_name=class_name.lower(),
+            display_name=display.lower(),
+            category=category.lower(),
+            description=desc.lower(),
+        )
+        tokens = set(_tokenize(class_name) + _tokenize(display)
+                     + _tokenize(category) + _tokenize(desc))
+        for token in tokens:
+            idx._inverted_index.setdefault(token, set()).add(class_name)
         idx._index_outputs(class_name, info)
         idx._index_inputs(class_name, info)
     idx._built = True

@@ -79,11 +79,12 @@ class LLMClient:
         messages: list[dict[str, Any]],
         tools: list[ToolSchema] | None = None,
         system: str = "",
+        max_tokens: int | None = None,
     ) -> LLMResponse:
         """Send messages to Claude with retry on transient errors."""
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
             "temperature": self.temperature,
             "messages": messages,
         }

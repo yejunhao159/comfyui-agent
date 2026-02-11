@@ -7,7 +7,8 @@ Provides:
 - POST /api/sessions — Create session
 - DELETE /api/sessions/{id} — Delete session
 - GET  /api/health — Health check (agent + ComfyUI status)
-- GET  / — Serve the web chat UI
+- GET  /api/config — Read safe config fields (API keys masked)
+- PUT  /api/config — Update config fields and persist to config.yaml
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from typing import Any
 
 from aiohttp import web
 import aiohttp_cors
+import yaml
 
 from comfyui_agent.application.agent_loop import AgentLoop
 from comfyui_agent.application.canvas_state import CanvasState
@@ -34,8 +36,13 @@ from comfyui_agent.domain.models.events import Event, EventType
 from comfyui_agent.domain.tools.factory import create_all_tools, create_readonly_tools
 from comfyui_agent.domain.tools.subagent import SubAgentTool
 from comfyui_agent.infrastructure.clients.comfyui_client import ComfyUIClient
+from comfyui_agent.infrastructure.clients.web_client import WebClient
 from comfyui_agent.infrastructure.config import AppConfig
 from comfyui_agent.infrastructure.event_bus import EventBus
+from comfyui_agent.infrastructure.identity.rolex_loader import (
+    RolexIdentityLoader,
+    features_to_sections,
+)
 from comfyui_agent.infrastructure.clients.llm_client import LLMClient
 from comfyui_agent.infrastructure.logging_setup import setup_logging
 from comfyui_agent.infrastructure.persistence.session_store import SessionStore
@@ -43,7 +50,7 @@ from comfyui_agent.knowledge.node_index import NodeIndex
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent / "static"
+
 
 
 class WebServer:
@@ -76,7 +83,12 @@ class WebServer:
         )
         self.session_store = SessionStore(db_path=config.agent.session_db)
         self.node_index = NodeIndex()
-        tools = create_all_tools(self.comfyui, self.node_index)
+        # Web client for search/fetch tools
+        self.web_client = WebClient(
+            tavily_api_key=config.web.resolve_tavily_key(),
+            timeout=config.web.timeout,
+        )
+        tools = create_all_tools(self.comfyui, self.node_index, web=self.web_client)
         readonly_tools = create_readonly_tools(self.comfyui, self.node_index)
         subagent_tool = SubAgentTool(
             llm=self.llm,
@@ -105,6 +117,39 @@ class WebServer:
         prompt_builder = PromptBuilder()
         for section in create_default_sections():
             prompt_builder.register_section(section)
+
+        # Load RoleX identity if configured
+        self._identity_loader: RolexIdentityLoader | None = None
+        if config.identity.role_name:
+            try:
+                loader = RolexIdentityLoader(rolex_dir=config.identity.rolex_dir)
+                features = loader.load_identity(config.identity.role_name)
+                if features:
+                    identity_sections = features_to_sections(
+                        features, role_name=config.identity.role_name,
+                    )
+                    for section in identity_sections:
+                        prompt_builder.register_section(section)
+                    logger.info(
+                        "Loaded %d identity sections for role '%s'",
+                        len(identity_sections), config.identity.role_name,
+                    )
+                self._identity_loader = loader
+            except Exception as exc:
+                logger.warning("Failed to load RoleX identity: %s", exc)
+
+        # Wire ExperienceSynthesizer for self-reflection
+        from comfyui_agent.application.experience_synthesizer import ExperienceSynthesizer
+        self._experience_synthesizer: ExperienceSynthesizer | None = None
+        if self._identity_loader and config.identity.role_name:
+            self._experience_synthesizer = ExperienceSynthesizer(
+                identity_port=self._identity_loader,
+                event_bus=self.event_bus,
+                role_name=config.identity.role_name,
+                llm=self.llm,
+                prompt_builder=prompt_builder,
+            )
+            logger.info("ExperienceSynthesizer wired for role '%s'", config.identity.role_name)
 
         self.agent = AgentLoop(
             llm=self.llm,
@@ -138,6 +183,8 @@ class WebServer:
         )
         chat = app.router.add_post("/api/chat", self.handle_chat)
         chat_ws = app.router.add_get("/api/chat/ws", self.handle_chat_ws)
+        config_get = app.router.add_get("/api/config", self.handle_get_config)
+        config_put = app.router.add_put("/api/config", self.handle_put_config)
 
         # CORS — allow ComfyUI frontend (and other origins) to access the API
         cors = aiohttp_cors.setup(
@@ -151,13 +198,8 @@ class WebServer:
                 for origin in self.config.server.cors_origins
             },
         )
-        for route in [health, sessions_list, sessions_create, sessions_delete, sessions_messages, chat, chat_ws]:
+        for route in [health, sessions_list, sessions_create, sessions_delete, sessions_messages, chat, chat_ws, config_get, config_put]:
             cors.add(route)
-
-        # Static files (web UI)
-        if STATIC_DIR.exists():
-            app.router.add_get("/", self.handle_index)
-            app.router.add_static("/static", STATIC_DIR, name="static")
 
         return app
 
@@ -183,17 +225,12 @@ class WebServer:
         logger.info("Shutting down...")
         await self.comfyui.close()
         await self.llm.close()
+        await self.web_client.close()
         await self.session_store.close()
 
     # ------------------------------------------------------------------
     # Handlers
     # ------------------------------------------------------------------
-
-    async def handle_index(self, request: web.Request) -> web.Response:
-        index_path = STATIC_DIR / "index.html"
-        if index_path.exists():
-            return web.FileResponse(index_path)
-        return web.Response(text="Web UI not found", status=404)
 
     async def handle_health(self, request: web.Request) -> web.Response:
         comfyui_ok = await self.comfyui.health_check()
@@ -268,6 +305,104 @@ class WebServer:
             return web.json_response(
                 {"error": str(e), "session_id": session_id}, status=500
             )
+
+    # ------------------------------------------------------------------
+    # Config API
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _mask_key(value: str) -> str:
+        """Mask an API key for safe display — show last 4 chars only."""
+        if not value or len(value) <= 4:
+            return "****" if value else ""
+        return "****" + value[-4:]
+
+    async def handle_get_config(self, request: web.Request) -> web.Response:
+        """Return safe config fields with API keys masked."""
+        cfg = self.config
+        return web.json_response({
+            "llm": {
+                "provider": cfg.llm.provider,
+                "model": cfg.llm.model,
+                "max_tokens": cfg.llm.max_tokens,
+                "base_url": cfg.llm.base_url,
+                "api_key_set": bool(cfg.llm.resolve_api_key()),
+                "api_key_masked": self._mask_key(cfg.llm.resolve_api_key()),
+            },
+            "web": {
+                "tavily_api_key_set": bool(cfg.web.resolve_tavily_key()),
+                "tavily_api_key_masked": self._mask_key(cfg.web.resolve_tavily_key()),
+            },
+            "comfyui": {
+                "base_url": cfg.comfyui.base_url,
+            },
+        })
+
+    async def handle_put_config(self, request: web.Request) -> web.Response:
+        """Update config fields and persist to config.yaml."""
+        body = await request.json()
+
+        # Load current YAML to preserve structure
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            with open(config_path) as f:
+                raw = yaml.safe_load(f) or {}
+        else:
+            raw = {}
+
+        updated_fields: list[str] = []
+
+        # LLM fields
+        if "llm" in body:
+            llm_data = body["llm"]
+            if "llm" not in raw:
+                raw["llm"] = {}
+            if "api_key" in llm_data and llm_data["api_key"]:
+                raw["llm"]["api_key"] = llm_data["api_key"]
+                self.config.llm.api_key = llm_data["api_key"]
+                updated_fields.append("llm.api_key")
+            if "model" in llm_data:
+                raw["llm"]["model"] = llm_data["model"]
+                self.config.llm.model = llm_data["model"]
+                updated_fields.append("llm.model")
+            if "base_url" in llm_data:
+                raw["llm"]["base_url"] = llm_data["base_url"]
+                self.config.llm.base_url = llm_data["base_url"]
+                updated_fields.append("llm.base_url")
+            if "max_tokens" in llm_data:
+                raw["llm"]["max_tokens"] = int(llm_data["max_tokens"])
+                self.config.llm.max_tokens = int(llm_data["max_tokens"])
+                updated_fields.append("llm.max_tokens")
+
+        # Web / Tavily
+        if "web" in body:
+            web_data = body["web"]
+            if "web" not in raw:
+                raw["web"] = {}
+            if "tavily_api_key" in web_data and web_data["tavily_api_key"]:
+                raw["web"]["tavily_api_key"] = web_data["tavily_api_key"]
+                self.config.web.tavily_api_key = web_data["tavily_api_key"]
+                updated_fields.append("web.tavily_api_key")
+
+        # ComfyUI base_url
+        if "comfyui" in body:
+            comfy_data = body["comfyui"]
+            if "comfyui" not in raw:
+                raw["comfyui"] = {}
+            if "base_url" in comfy_data:
+                raw["comfyui"]["base_url"] = comfy_data["base_url"]
+                self.config.comfyui.base_url = comfy_data["base_url"]
+                updated_fields.append("comfyui.base_url")
+
+        # Persist
+        with open(config_path, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
+
+        logger.info("Config updated: %s", ", ".join(updated_fields))
+        return web.json_response({
+            "status": "ok",
+            "updated": updated_fields,
+        })
 
     async def handle_chat_ws(self, request: web.Request) -> web.WebSocketResponse:
         """WebSocket chat — bidirectional streaming."""

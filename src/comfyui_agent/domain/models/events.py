@@ -81,6 +81,9 @@ class EventType(str, Enum):
     # Context management events
     CONTEXT_SUMMARIZED = "context.summarized"  # {original_tokens, summary_tokens}
 
+    # Experience events — self-bootstrapping
+    EXPERIENCE_SYNTHESIZED = "experience.synthesized"  # {name, title}
+
 
 # ============================================================
 # Event Data Classes
