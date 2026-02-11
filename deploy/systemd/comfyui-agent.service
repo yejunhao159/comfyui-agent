@@ -1,0 +1,31 @@
+[Unit]
+Description=ComfyUI Agent Server
+After=network.target
+# If ComfyUI runs as a systemd service too:
+# After=comfyui.service
+
+[Service]
+Type=simple
+User=comfyui
+Group=comfyui
+WorkingDirectory=/opt/comfyui-agent
+ExecStart=/opt/comfyui-agent/.venv/bin/python -m comfyui_agent
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=ANTHROPIC_API_KEY=
+EnvironmentFile=-/opt/comfyui-agent/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=comfyui-agent
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/comfyui-agent/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+# Production configuration for ComfyUI Agent
+# API key loaded from ANTHROPIC_API_KEY environment variable
+
+comfyui:
+  # In Docker Compose, use service name as hostname
+  base_url: "http://comfyui:6006"
+  ws_url: "ws://comfyui:6006/ws"
+  timeout: 60
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-5-20250929"
+  max_tokens: 8192
+  temperature: 0.7
+  # api_key: loaded from ANTHROPIC_API_KEY env var
+  # base_url: uncomment to use a relay/proxy
+  # base_url: "https://relay.deepractice.ai/api"
+
+agent:
+  max_iterations: 20
+  session_db: "data/sessions.db"
+
+server:
+  host: "0.0.0.0"
+  port: 5200
+  cors_origins: ["*"]
+
+logging:
+  level: "INFO"
+  format: "json"
+  log_dir: "data/logs"
+
+identity:
+  rolex_dir: "/app/rolex"
+  role_name: ""

@@ -1,0 +1,62 @@
+# ComfyUI Agent — Production Docker Compose
+#
+# Architecture:
+#   comfyui (GPU, :6006) ←→ agent (:5200) → Claude API
+#   Plugin UI is served by ComfyUI via custom_nodes symlink
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f agent
+#
+# Prerequisites:
+#   - NVIDIA GPU with drivers installed
+#   - nvidia-container-toolkit installed
+#   - ANTHROPIC_API_KEY set in .env or environment
+
+services:
+  comfyui:
+    image: ghcr.io/ai-dock/comfyui:latest
+    container_name: comfyui
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+    volumes:
+      - comfyui-data:/workspace/ComfyUI
+      # Mount plugin into ComfyUI custom_nodes
+      - ./comfyui-plugin:/workspace/ComfyUI/custom_nodes/comfyui-agent
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - COMFYUI_PORT=6006
+    networks:
+      - agent-net
+
+  agent:
+    build: .
+    container_name: comfyui-agent
+    restart: unless-stopped
+    ports:
+      - "5200:5200"
+    volumes:
+      - agent-data:/app/data
+      - ./config.production.yaml:/app/config.yaml:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      comfyui:
+        condition: service_started
+    networks:
+      - agent-net
+
+volumes:
+  comfyui-data:
+  agent-data:
+
+networks:
+  agent-net:
+    driver: bridge

@@ -1,0 +1,16 @@
+.git
+.venv
+.vscode
+.kiro
+.hypothesis
+.pytest_cache
+__pycache__
+*.pyc
+_research
+data
+node_modules
+comfyui-plugin/ui/node_modules
+comfyui-plugin/ui/dist
+comfyui-plugin/__pycache__
+.env
+*.egg-info
